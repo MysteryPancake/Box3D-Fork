@@ -1,4 +1,6 @@
-# Box3D
+# Box3D Fork
+
+Forked to add some features and bug fixes for [Houdini Box3D](https://github.com/MysteryPancake/Houdini-Box3D).
 
 [![Build Status](https://github.com/erincatto/box3d/actions/workflows/build.yml/badge.svg)](https://github.com/erincatto/box3d/actions)
 [![CLA assistant](https://cla-assistant.io/readme/badge/erincatto/box3d)](https://cla-assistant.io/erincatto/box3d)
