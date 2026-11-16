@@ -141,8 +141,32 @@ trees, the id pools, and the interned shape geometry. It does not capture host w
 count, task callbacks, user data, the friction and restitution mixers); that is rebuilt or
 reinstalled at restore.
 
-This machinery is currently internal, used only to seed and replay recordings. Box3D does not yet
-expose a standalone save-state / restore API.
+Recordings use it internally. The fork also exposes it as a standalone save-state / restore API, see
+[World snapshots](#world-snapshots).
+
+## World snapshots {#world-snapshots}
+
+A world snapshot is the same image kept in memory, without a recording around it.
+
+```c
+b3WorldSnapshot* snapshot = b3World_CreateSnapshot( worldId );   // at a step boundary
+// ... keep stepping ...
+bool ok = b3World_RestoreSnapshot( worldId, snapshot );          // the world is back at the snapshot
+b3DestroyWorldSnapshot( snapshot );
+```
+
+- Create and restore need an unlocked world (not mid step). Restore also refuses a world that is recording.
+- Restore into the world the snapshot came from, or into one made with the same `b3WorldDef`. Ids from the
+  snapshot are valid again, and anything created after it is gone.
+- Hulls are copied into the snapshot because the world clones them into its own database.
+  Meshes, height fields and compounds are stored as pointers: the host owns them and must keep them alive
+  while the snapshot is used.
+- User data on bodies, shapes and joints is reset to NULL on restore, so the host sets it again.
+  The friction and restitution mixers and the task callbacks stay as the world has them.
+- A snapshot only works in the process and build that made it. Use a recording to save to disk.
+- If `b3World_RestoreSnapshot` returns false because the image is bad, the world is half overwritten
+  and must be destroyed.
+- `b3WorldSnapshot_GetByteCount` gives the memory a snapshot uses.
 
 ## Debug shapes for replay
 

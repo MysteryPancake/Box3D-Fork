@@ -55,3 +55,24 @@ a debug draw shape, a setter for the plane. Compound children cannot be planes.
 
 **Tests.** The Houdini repo's `tests/core_plane.cpp` covers resting shapes, a raised and a tilted plane, a trough of two
 planes, a 400 m/s sphere (no tunnelling) and refused input. The fork has no plane test of its own.
+
+## World snapshots
+
+A public, in-memory save / restore of a world: `b3World_CreateSnapshot`, `b3World_RestoreSnapshot`,
+`b3WorldSnapshot_GetByteCount`, `b3DestroyWorldSnapshot` (`box3d.h`, implemented at the end of `world_snapshot.c`). User
+docs are in `docs/recording.md`.
+
+**How it works.** It reuses the recording player's keyframe serializer: `b3SerializeWorldImpl` and
+`b3DeserializeIntoShell`. The player already restores into a populated world, so no new teardown code was needed. The
+difference is how geometry is stored. The header flag `B3_SNAP_FLAG_HOST_GEOMETRY` makes mesh, height field and
+compound shapes write the host's pointer instead of interning their bytes (a recording needs the bytes because it
+leaves the process; a snapshot does not, and hashing a large mesh per snapshot would be slow). Hulls are still interned
+into a private `b3Recording` registry held by the `b3WorldSnapshot`, because `b3AddHullToDatabase` clones from bytes. On
+restore a temporary `b3RecReader` whose slots point at that registry supplies the hull bytes.
+
+**Limits.** The pointers make a snapshot valid only inside the writing process, and only while the host keeps its mesh
+data alive. Body, shape and joint `userData` are written as NULL, as in recordings. Restore refuses a locked or recording
+world. Every snapshot copies each hull it uses: sharing hulls between snapshots would save memory (not done).
+
+**Test.** `WorldSnapshotRestore` in `test/test_recording.c`: restore into the same world, then the next 60 steps match
+the first run exactly. It uses hulls and spheres, not meshes.

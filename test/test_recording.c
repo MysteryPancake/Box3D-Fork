@@ -2480,6 +2480,92 @@ static int GeometryMutatorReplay( void )
 	return 0;
 }
 
+// Public world snapshot: restoring one into the same world continues exactly as the first run did,
+// bodies made after the snapshot are gone, and the snapshot can be destroyed while the world lives on.
+static int WorldSnapshotRestore( void )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+
+	b3BodyDef groundDef = b3DefaultBodyDef();
+	groundDef.type = b3_staticBody;
+	b3BodyId groundId = b3CreateBody( worldId, &groundDef );
+	b3BoxHull groundBox = b3MakeBoxHull( 50.0f, 1.0f, 50.0f );
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	b3CreateHullShape( groundId, &shapeDef, &groundBox.base );
+
+	enum
+	{
+		bodyCount = 5
+	};
+	b3BodyId bodies[bodyCount];
+	b3BoxHull box = b3MakeBoxHull( 0.5f, 0.5f, 0.5f );
+	b3Sphere sphere = { { 0.0f, 0.0f, 0.0f }, 0.5f };
+	for ( int i = 0; i < bodyCount; ++i )
+	{
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ 0.1f * (float)i, 2.0f + 1.5f * (float)i, 0.0f };
+		bodies[i] = b3CreateBody( worldId, &bodyDef );
+		if ( i % 2 == 0 )
+		{
+			b3CreateHullShape( bodies[i], &shapeDef, &box.base );
+		}
+		else
+		{
+			b3CreateSphereShape( bodies[i], &shapeDef, &sphere );
+		}
+	}
+
+	float timeStep = 1.0f / 60.0f;
+	for ( int i = 0; i < 30; ++i )
+	{
+		b3World_Step( worldId, timeStep, 4 );
+	}
+
+	b3WorldSnapshot* snapshot = b3World_CreateSnapshot( worldId );
+	ENSURE( snapshot != NULL );
+	ENSURE( b3WorldSnapshot_GetByteCount( snapshot ) > 0 );
+
+	for ( int i = 0; i < 60; ++i )
+	{
+		b3World_Step( worldId, timeStep, 4 );
+	}
+	b3Pos expected[bodyCount];
+	for ( int i = 0; i < bodyCount; ++i )
+	{
+		expected[i] = b3Body_GetPosition( bodies[i] );
+	}
+
+	// A body made after the snapshot disappears with the restore
+	b3BodyDef lateDef = b3DefaultBodyDef();
+	lateDef.type = b3_dynamicBody;
+	b3BodyId lateBody = b3CreateBody( worldId, &lateDef );
+	b3CreateSphereShape( lateBody, &shapeDef, &sphere );
+
+	ENSURE( b3World_RestoreSnapshot( worldId, snapshot ) );
+	ENSURE( b3Body_IsValid( lateBody ) == false );
+	for ( int i = 0; i < bodyCount; ++i )
+	{
+		ENSURE( b3Body_IsValid( bodies[i] ) );
+	}
+
+	b3DestroyWorldSnapshot( snapshot );
+
+	for ( int i = 0; i < 60; ++i )
+	{
+		b3World_Step( worldId, timeStep, 4 );
+	}
+	for ( int i = 0; i < bodyCount; ++i )
+	{
+		b3Pos p = b3Body_GetPosition( bodies[i] );
+		ENSURE( p.x == expected[i].x && p.y == expected[i].y && p.z == expected[i].z );
+	}
+
+	b3DestroyWorld( worldId );
+	return 0;
+}
+
 int RecordingTest( void )
 {
 	RUN_SUBTEST( GeometryHashCollision );
@@ -2503,5 +2589,6 @@ int RecordingTest( void )
 	RUN_SUBTEST( AllOps );
 	RUN_SUBTEST( ReservedHeaderBytes );
 	RUN_SUBTEST( CorruptCompound );
+	RUN_SUBTEST( WorldSnapshotRestore );
 	return 0;
 }

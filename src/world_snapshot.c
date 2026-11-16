@@ -37,6 +37,9 @@
 
 #define B3_SNAP_FLAG_VALIDATION 0x1u
 #define B3_SNAP_FLAG_DOUBLE_PRECISION 0x2u
+// Mesh, height field and compound shapes are stored as the host's own pointers instead of interned bytes.
+// Only valid inside the process that wrote the image (public world snapshots).
+#define B3_SNAP_FLAG_HOST_GEOMETRY 0x4u
 
 // Layout hash over all POD-copied structs + key constants.
 // Changing a struct size updates this, catching ABI drift early.
@@ -545,7 +548,7 @@ static void b3DesWorldConfig( b3SnapReader* r, b3World* world )
 // Serialize the POD scalars with pointers nulled, then the owned materials array, then geometry.
 // A single material lives inline in the struct image.
 // Hull/mesh/heightField/compound are interned into the recording registry; sphere/capsule inline.
-static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec )
+static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec, bool hostGeometry )
 {
 	int count = world->shapes.count;
 	b3SnapW_I32( buf, count );
@@ -608,23 +611,47 @@ static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec )
 			case b3_meshShape:
 			{
 				b3SnapW_I32( buf, (int)b3_meshShape );
-				uint32_t gid = b3RecInternMesh( rec, src->mesh.data );
-				b3SnapW_U32( buf, gid );
+				if ( hostGeometry )
+				{
+					const void* ptr = src->mesh.data;
+					b3SnapW_Bytes( buf, &ptr, (int)sizeof( ptr ) );
+				}
+				else
+				{
+					uint32_t gid = b3RecInternMesh( rec, src->mesh.data );
+					b3SnapW_U32( buf, gid );
+				}
 				b3SnapW_Bytes( buf, &src->mesh.scale, sizeof( b3Vec3 ) );
 				break;
 			}
 			case b3_heightShape:
 			{
 				b3SnapW_I32( buf, (int)b3_heightShape );
-				uint32_t gid = b3RecInternHeightField( rec, src->heightField );
-				b3SnapW_U32( buf, gid );
+				if ( hostGeometry )
+				{
+					const void* ptr = src->heightField;
+					b3SnapW_Bytes( buf, &ptr, (int)sizeof( ptr ) );
+				}
+				else
+				{
+					uint32_t gid = b3RecInternHeightField( rec, src->heightField );
+					b3SnapW_U32( buf, gid );
+				}
 				break;
 			}
 			case b3_compoundShape:
 			{
 				b3SnapW_I32( buf, (int)b3_compoundShape );
-				uint32_t gid = b3RecInternCompound( rec, src->compound );
-				b3SnapW_U32( buf, gid );
+				if ( hostGeometry )
+				{
+					const void* ptr = src->compound;
+					b3SnapW_Bytes( buf, &ptr, (int)sizeof( ptr ) );
+				}
+				else
+				{
+					uint32_t gid = b3RecInternCompound( rec, src->compound );
+					b3SnapW_U32( buf, gid );
+				}
 				break;
 			}
 			case b3_planeShape:
@@ -641,7 +668,7 @@ static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec )
 	}
 }
 
-static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
+static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr, bool hostGeometry )
 {
 	int count = b3SnapR_I32( r );
 	if ( r->ok && b3SnapCheckCount( r, count, (int)sizeof( b3Shape ), (int)sizeof( b3Shape ) ) == false )
@@ -763,6 +790,21 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 			}
 			case b3_meshShape:
 			{
+				if ( hostGeometry )
+				{
+					const void* ptr = NULL;
+					b3SnapR_Bytes( r, &ptr, (int)sizeof( ptr ) );
+					b3Vec3 hostScale;
+					b3SnapR_Bytes( r, &hostScale, sizeof( b3Vec3 ) );
+					if ( !r->ok || ptr == NULL )
+					{
+						r->ok = false;
+						break;
+					}
+					dst->mesh.data = (const b3MeshData*)ptr;
+					dst->mesh.scale = hostScale;
+					break;
+				}
 				uint32_t gid = b3SnapR_U32( r );
 				b3Vec3 scale;
 				b3SnapR_Bytes( r, &scale, sizeof( b3Vec3 ) );
@@ -783,6 +825,18 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 			}
 			case b3_heightShape:
 			{
+				if ( hostGeometry )
+				{
+					const void* ptr = NULL;
+					b3SnapR_Bytes( r, &ptr, (int)sizeof( ptr ) );
+					if ( !r->ok || ptr == NULL )
+					{
+						r->ok = false;
+						break;
+					}
+					dst->heightField = (const b3HeightFieldData*)ptr;
+					break;
+				}
 				uint32_t gid = b3SnapR_U32( r );
 				if ( !r->ok )
 				{
@@ -800,6 +854,18 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 			}
 			case b3_compoundShape:
 			{
+				if ( hostGeometry )
+				{
+					const void* ptr = NULL;
+					b3SnapR_Bytes( r, &ptr, (int)sizeof( ptr ) );
+					if ( !r->ok || ptr == NULL )
+					{
+						r->ok = false;
+						break;
+					}
+					dst->compound = (const b3CompoundData*)ptr;
+					break;
+				}
 				uint32_t gid = b3SnapR_U32( r );
 				if ( !r->ok )
 				{
@@ -1036,7 +1102,7 @@ static void b3FreeLiveSimElements( b3World* world )
 	}
 }
 
-int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
+static int b3SerializeWorldImpl( b3World* world, b3RecBuffer* buf, b3Recording* rec, bool hostGeometry )
 {
 	int startSize = buf->size;
 
@@ -1049,6 +1115,10 @@ int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
 #if defined( BOX3D_DOUBLE_PRECISION )
 	hdr.flags |= B3_SNAP_FLAG_DOUBLE_PRECISION;
 #endif
+	if ( hostGeometry )
+	{
+		hdr.flags |= B3_SNAP_FLAG_HOST_GEOMETRY;
+	}
 	b3SnapW_Bytes( buf, &hdr, (int)sizeof( hdr ) );
 
 	// World scalars
@@ -1083,7 +1153,7 @@ int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
 	}
 
 	// Shape sparse array with geometry interning
-	b3SerShapes( buf, world, rec );
+	b3SerShapes( buf, world, rec, hostGeometry );
 
 	b3SerPodArray( buf, world->fatAABBs );
 
@@ -1151,6 +1221,11 @@ int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
 	b3SerNames( buf, &world->names );
 
 	return buf->size - startSize;
+}
+
+int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
+{
+	return b3SerializeWorldImpl( world, buf, rec, false );
 }
 
 bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3RecReader* rdr )
@@ -1269,7 +1344,7 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 	}
 
 	// 5. Shape sparse array
-	b3DesShapes( r, world, rdr );
+	b3DesShapes( r, world, rdr, ( hdr.flags & B3_SNAP_FLAG_HOST_GEOMETRY ) != 0 );
 
 	if ( !r->ok )
 	{
@@ -1394,4 +1469,97 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 	b3DesNames( r, &world->names );
 
 	return r->ok;
+}
+
+// Public world snapshot: an in-memory image of one world plus the hulls it uses. Hulls are cloned into
+// the world's own database on restore, so they are kept as bytes. Mesh, height field and compound
+// shapes are host-owned and shared by pointer, so they are stored as pointers and not copied.
+struct b3WorldSnapshot
+{
+	b3RecBuffer buffer;
+	b3Recording* hulls;
+};
+
+b3WorldSnapshot* b3World_CreateSnapshot( b3WorldId worldId )
+{
+	// Must be a step boundary, so refuse a locked world
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return NULL;
+	}
+
+	b3WorldSnapshot* snapshot = (b3WorldSnapshot*)b3Alloc( sizeof( b3WorldSnapshot ) );
+	memset( snapshot, 0, sizeof( b3WorldSnapshot ) );
+	// The recording is only a container for the hull registry
+	snapshot->hulls = b3CreateRecording( 1 );
+	b3SerializeWorldImpl( world, &snapshot->buffer, snapshot->hulls, true );
+	return snapshot;
+}
+
+bool b3World_RestoreSnapshot( b3WorldId worldId, const b3WorldSnapshot* snapshot )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL || snapshot == NULL || world->recording != NULL )
+	{
+		return false;
+	}
+
+	// Slots point at the registry's bytes, which b3DeserializeIntoShell only reads (hulls are cloned)
+	const b3GeometryRegistry* registry = &snapshot->hulls->registry;
+	int slotCount = registry->entries.count;
+	b3RegistrySlot* slots = NULL;
+	if ( slotCount > 0 )
+	{
+		slots = (b3RegistrySlot*)b3Alloc( (size_t)slotCount * sizeof( b3RegistrySlot ) );
+		for ( int i = 0; i < slotCount; ++i )
+		{
+			const b3GeometryEntry* entry = registry->entries.data + i;
+			slots[i].kind = entry->kind;
+			slots[i].byteCount = entry->byteCount;
+			slots[i].bytes = entry->bytes;
+		}
+	}
+
+	b3RecReader rdr;
+	memset( &rdr, 0, sizeof( rdr ) );
+	rdr.slots = slots;
+	rdr.slotCount = slotCount;
+	rdr.ok = true;
+
+	bool ok = b3DeserializeIntoShell( snapshot->buffer.data, snapshot->buffer.size, world, &rdr );
+
+	if ( slots != NULL )
+	{
+		b3Free( slots, (size_t)slotCount * sizeof( b3RegistrySlot ) );
+	}
+	return ok;
+}
+
+int b3WorldSnapshot_GetByteCount( const b3WorldSnapshot* snapshot )
+{
+	if ( snapshot == NULL )
+	{
+		return 0;
+	}
+
+	int bytes = snapshot->buffer.size;
+	const b3GeometryRegistry* registry = &snapshot->hulls->registry;
+	for ( int i = 0; i < registry->entries.count; ++i )
+	{
+		bytes += registry->entries.data[i].byteCount;
+	}
+	return bytes;
+}
+
+void b3DestroyWorldSnapshot( b3WorldSnapshot* snapshot )
+{
+	if ( snapshot == NULL )
+	{
+		return;
+	}
+
+	b3RecBufFree( &snapshot->buffer );
+	b3DestroyRecording( snapshot->hulls );
+	b3Free( snapshot, sizeof( b3WorldSnapshot ) );
 }
