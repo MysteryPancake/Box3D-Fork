@@ -652,6 +652,32 @@ B3_API b3TOIOutput b3TimeOfImpact( const b3TOIInput* input );
  * @{
  */
 
+/// Plane shapes are static half-spaces: the solid side is dot( normal, x ) <= offset.
+
+/// Compute the finite bounding box of a transformed plane. See B3_PLANE_EXTENT.
+B3_API b3AABB b3ComputePlaneAABB( const b3Plane* shape, b3Transform transform );
+
+/// Overlap plane versus a proxy in the plane's frame
+B3_API bool b3OverlapPlane( const b3Plane* shape, b3Transform shapeTransform, const b3ShapeProxy* proxy );
+
+/// Ray cast versus a plane in local space. A ray that starts inside reports a hit at the origin.
+B3_API b3CastOutput b3RayCastPlane( const b3Plane* shape, const b3RayCastInput* input );
+
+/// Shape cast versus a plane. Initial overlap is treated as a miss.
+B3_API b3CastOutput b3ShapeCastPlane( const b3Plane* shape, const b3ShapeCastInput* input );
+
+/// Collide a plane and a sphere. Normal points from the plane to the sphere.
+B3_API void b3CollidePlaneAndSphere( b3LocalManifold* manifold, int capacity, const b3Plane* planeA, const b3Sphere* sphereB,
+									 b3Transform transformBtoA );
+
+/// Collide a plane and a capsule.
+B3_API void b3CollidePlaneAndCapsule( b3LocalManifold* manifold, int capacity, const b3Plane* planeA,
+									  const b3Capsule* capsuleB, b3Transform transformBtoA );
+
+/// Collide a plane and a hull.
+B3_API void b3CollidePlaneAndHull( b3LocalManifold* manifold, int capacity, const b3Plane* planeA, const b3HullData* hullB,
+								   b3Transform transformBtoA );
+
 /// Collide two spheres.
 B3_API void b3CollideSpheres( b3LocalManifold* manifold, int capacity, const b3Sphere* sphereA, const b3Sphere* sphereB,
 							  b3Transform transformBtoA );

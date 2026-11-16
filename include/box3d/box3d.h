@@ -906,6 +906,13 @@ B3_API b3ShapeId b3CreateTransformedHullShape( b3BodyId bodyId, const b3ShapeDef
 /// @return the shape id for accessing the shape
 B3_API b3ShapeId b3CreateMeshShape( b3BodyId bodyId, const b3ShapeDef* def, const b3MeshData* mesh, b3Vec3 scale );
 
+/// Create a plane shape and attach it to a body. A plane is an infinite half-space: the solid side
+/// is dot( normal, x ) <= offset in the body frame, so the normal points into free space. The
+/// normal must be a unit vector. Planes are only allowed on static bodies, collide with spheres,
+/// capsules and hulls, and cover B3_PLANE_EXTENT around the body origin.
+/// @return the shape id for accessing the shape
+B3_API b3ShapeId b3CreatePlaneShape( b3BodyId bodyId, const b3ShapeDef* def, const b3Plane* plane );
+
 /// Create a height-field shape and attach it to a body. The shape definition is fully cloned but
 /// the height field is not. Contacts are not created until the next time step. Height field is only
 /// allowed on static bodies.
@@ -1049,6 +1056,9 @@ B3_API b3Mesh b3Shape_GetMesh( b3ShapeId shapeId );
 
 /// Get the shape's height field. Asserts the type is correct.
 B3_API const b3HeightFieldData* b3Shape_GetHeightField( b3ShapeId shapeId );
+
+/// Get the shape's plane. Asserts the type is correct.
+B3_API b3Plane b3Shape_GetPlane( b3ShapeId shapeId );
 
 /// Get the shape's compound. Asserts the type is correct.
 B3_API const b3CompoundData* b3Shape_GetCompound( b3ShapeId shapeId );

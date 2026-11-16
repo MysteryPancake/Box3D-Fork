@@ -1350,6 +1350,9 @@ static bool DrawQueryCallback( int proxyId, uint64_t userData, void* context )
 					debugShape.sphere = &shape->sphere;
 					shape->userShape = world->createDebugShape( &debugShape, world->userDebugShapeContext );
 					break;
+				case b3_planeShape:
+					// Infinite: there is nothing finite to hand to the debug draw
+					break;
 				default:
 					B3_ASSERT( false );
 					break;

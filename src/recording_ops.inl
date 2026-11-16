@@ -82,6 +82,7 @@ B3_REC_OP( 0x42, CreateHullShape, RET_SHAPEID, ARG( BODYID, body ) ARG( SHAPEDEF
 B3_REC_OP( 0x43, CreateMeshShape, RET_SHAPEID, ARG( BODYID, body ) ARG( SHAPEDEF, def ) ARG( GEOMID, geometryId ) ARG( VEC3, scale ) )
 B3_REC_OP( 0x44, CreateHeightFieldShape, RET_SHAPEID, ARG( BODYID, body ) ARG( SHAPEDEF, def ) ARG( GEOMID, geometryId ) )
 B3_REC_OP( 0x45, CreateCompoundShape, RET_SHAPEID, ARG( BODYID, body ) ARG( SHAPEDEF, def ) ARG( GEOMID, geometryId ) )
+B3_REC_OP( 0x47, CreatePlaneShape, RET_SHAPEID, ARG( BODYID, body ) ARG( SHAPEDEF, def ) ARG( PLANE, plane ) )
 B3_REC_OP( 0x46, DestroyShape, RET_NONE, ARG( SHAPEID, shape ) ARG( BOOL, updateBodyMass ) )
 
 // Shape mutators

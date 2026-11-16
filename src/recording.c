@@ -248,6 +248,11 @@ void b3RecW_SPHERE( b3RecBuffer* buf, b3Sphere v )
 	b3RecBufAppend( buf, &v, (int)sizeof( b3Sphere ) );
 }
 
+void b3RecW_PLANE( b3RecBuffer* buf, b3Plane v )
+{
+	b3RecBufAppend( buf, &v, (int)sizeof( b3Plane ) );
+}
+
 void b3RecW_CAPSULE( b3RecBuffer* buf, b3Capsule v )
 {
 	b3RecBufAppend( buf, &v, (int)sizeof( b3Capsule ) );

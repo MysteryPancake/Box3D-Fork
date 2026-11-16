@@ -2,6 +2,19 @@
 
 Forked to add some features and bug fixes for [Houdini Box3D](https://github.com/MysteryPancake/Houdini-Box3D).
 
+### Changes since upstream main
+
+- New static plane shape (`b3_planeShape`): an infinite half-space, solid where `dot( normal, x ) <= offset`. Create it with `b3CreatePlaneShape`, read it with `b3Shape_GetPlane`.
+- Planes are static-only, collide with spheres, capsules and hulls, and several can exist in one world.
+- A plane covers `B3_PLANE_EXTENT` (a quarter of `B3_HUGE`) around its body, not true infinity, because the broad-phase needs a finite box.
+- Ray casts, shape casts, overlap tests, mover collision and continuous collision work with planes.
+- Planes are supported by recording, replay and world snapshots (new recording op `CreatePlaneShape`, 0x47).
+- `b3_planeShape` is added at the end of `b3ShapeType`, so existing recorded values keep their meaning.
+- New public functions: `b3ComputePlaneAABB`, `b3OverlapPlane`, `b3RayCastPlane`, `b3ShapeCastPlane`, `b3CollidePlaneAndSphere`, `b3CollidePlaneAndCapsule`, `b3CollidePlaneAndHull`.
+- Planes have no debug draw shape, because they are infinite.
+
+Notes for agents working in this repository are in [AGENTS.md](AGENTS.md).
+
 [![Build Status](https://github.com/erincatto/box3d/actions/workflows/build.yml/badge.svg)](https://github.com/erincatto/box3d/actions)
 [![CLA assistant](https://cla-assistant.io/readme/badge/erincatto/box3d)](https://cla-assistant.io/erincatto/box3d)
 
