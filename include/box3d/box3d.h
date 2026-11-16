@@ -356,31 +356,6 @@ B3_API b3Recording* b3LoadRecordingFromFile( const char* path );
 /// @param workerCount reserved for future multithreaded replay; pass 1 for now
 B3_API bool b3ValidateReplay( const void* data, int size, int workerCount );
 
-/// Opaque in-memory snapshot of a world's simulation state.
-typedef struct b3WorldSnapshot b3WorldSnapshot;
-
-/// Capture the simulation state of a world: bodies, shapes, joints, contacts (with their warm starting
-/// impulses), sleeping islands, the broad-phase and the constraint graph. Call between steps.
-/// Mesh, height field and compound shapes are shared by pointer, so the host must keep them alive for
-/// as long as the snapshot is used. Hulls are copied. A snapshot is only valid within the process and
-/// build that made it. User data (body, shape and joint) and callbacks are not captured.
-/// @return the snapshot, owned by the caller (destroy with b3DestroyWorldSnapshot), or NULL if the world is locked
-B3_API b3WorldSnapshot* b3World_CreateSnapshot( b3WorldId worldId );
-
-/// Overwrite a world's simulation state with a snapshot. The world should be the one the snapshot came
-/// from or one created with the same b3WorldDef. Body, shape and joint ids from the snapshot become valid
-/// again and anything created since is gone. User data on bodies, shapes and joints is reset to NULL and
-/// must be set again by the host. Returns false if the world is locked or recording or the snapshot is
-/// incompatible. After a failed restore the world is unusable and must be destroyed.
-B3_API bool b3World_RestoreSnapshot( b3WorldId worldId, const b3WorldSnapshot* snapshot );
-
-/// Memory used by a snapshot, in bytes.
-B3_API int b3WorldSnapshot_GetByteCount( const b3WorldSnapshot* snapshot );
-
-/// Destroy a snapshot.
-/// @param snapshot may be NULL
-B3_API void b3DestroyWorldSnapshot( b3WorldSnapshot* snapshot );
-
 /// Opaque incremental replay player with a keyframe ring for O(interval) backward seek.
 typedef struct b3RecPlayer b3RecPlayer;
 

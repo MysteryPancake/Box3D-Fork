@@ -12,9 +12,6 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 - `b3_planeShape` is added at the end of `b3ShapeType`, so existing recorded values keep their meaning.
 - New public functions: `b3ComputePlaneAABB`, `b3OverlapPlane`, `b3RayCastPlane`, `b3ShapeCastPlane`, `b3CollidePlaneAndSphere`, `b3CollidePlaneAndCapsule`, `b3CollidePlaneAndHull`.
 - Planes have no debug draw shape, because they are infinite.
-- New public world snapshot: `b3World_CreateSnapshot`, `b3World_RestoreSnapshot`, `b3WorldSnapshot_GetByteCount` and `b3DestroyWorldSnapshot` save the simulation state in memory and put a world back to it.
-- A restore keeps warm-start impulses and sleep state. User data on bodies, shapes and joints is reset to NULL.
-- Meshes, height fields and compounds are shared by pointer, so the host keeps them alive while a snapshot exists. Hulls are copied into the snapshot.
 
 Notes for agents working in this repository are in [AGENTS.md](AGENTS.md).
 
