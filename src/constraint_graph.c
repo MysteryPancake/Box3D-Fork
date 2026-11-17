@@ -28,7 +28,9 @@ static const b3HexColor b3_graphColors[B3_GRAPH_COLOR_COUNT] = {
 	b3_colorAqua,	   b3_colorDodgerBlue,	b3_colorBlueViolet,		b3_colorMagenta,		 b3_colorDeepPink,
 	b3_colorCrimson,   b3_colorCoral,		b3_colorGold,			b3_colorGreenYellow,	 b3_colorMediumSeaGreen,
 	b3_colorTurquoise, b3_colorDeepSkyBlue, b3_colorCornflowerBlue, b3_colorMediumSlateBlue, b3_colorMediumOrchid,
-	b3_colorHotPink,   b3_colorTomato,		b3_colorKhaki,			b3_colorSilver,
+	b3_colorHotPink,   b3_colorTomato,		b3_colorKhaki,			b3_colorOrchid,			 b3_colorTan,
+	b3_colorSkyBlue,   b3_colorSlateBlue,	b3_colorSeaGreen,		b3_colorMaroon,			 b3_colorOlive,
+	b3_colorIndigo,	   b3_colorSilver,
 };
 
 b3HexColor b3GetGraphColor( int index )

@@ -20,6 +20,9 @@
 #include <stdio.h>
 #include <string.h>
 
+static void b3AddJointPair( b3World* world, int bodyIdA, int bodyIdB );
+static void b3RemoveJointPairIfUnused( b3World* world, const b3Body* bodyA, const b3Body* bodyB );
+
 static b3JointDef b3DefaultJointDef( void )
 {
 	b3JointDef def = { 0 };
@@ -251,6 +254,10 @@ static b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3Joint
 	joint->drawScale = def->drawScale;
 	joint->type = type;
 	joint->collideConnected = def->collideConnected;
+	if ( def->collideConnected == false )
+	{
+		b3AddJointPair( world, bodyIdA, bodyIdB );
+	}
 
 	// Doubly linked list on bodyA
 	joint->edges[0].bodyId = bodyIdA;
@@ -809,6 +816,37 @@ b3JointId b3CreateWheelJoint( b3WorldId worldId, const b3WheelJointDef* def )
 	return jointId;
 }
 
+// Keep the set of body pairs that must not collide in sync with the joints
+static void b3AddJointPair( b3World* world, int bodyIdA, int bodyIdB )
+{
+	b3AddKey( &world->broadPhase.jointPairSet, b3ShapePairKey( bodyIdA, bodyIdB, 0 ) );
+}
+
+// Call after the joint has been unlinked from the bodies or has had collideConnected set to true
+static void b3RemoveJointPairIfUnused( b3World* world, const b3Body* bodyA, const b3Body* bodyB )
+{
+	// Walk the shorter list
+	const b3Body* body = bodyA->jointCount < bodyB->jointCount ? bodyA : bodyB;
+	int otherBodyId = body == bodyA ? bodyB->id : bodyA->id;
+
+	int jointKey = body->headJointKey;
+	while ( jointKey != B3_NULL_INDEX )
+	{
+		int jointId = jointKey >> 1;
+		int edgeIndex = jointKey & 1;
+
+		const b3Joint* other = b3Array_Get( world->joints, jointId );
+		if ( other->collideConnected == false && other->edges[edgeIndex ^ 1].bodyId == otherBodyId )
+		{
+			return;
+		}
+
+		jointKey = other->edges[edgeIndex].nextKey;
+	}
+
+	b3RemoveKey( &world->broadPhase.jointPairSet, b3ShapePairKey( bodyA->id, bodyB->id, 0 ) );
+}
+
 void b3DestroyJointInternal( b3World* world, b3Joint* joint, bool wakeBodies )
 {
 	int jointId = joint->jointId;
@@ -866,6 +904,11 @@ void b3DestroyJointInternal( b3World* world, b3Joint* joint, bool wakeBodies )
 	}
 
 	bodyB->jointCount -= 1;
+
+	if ( joint->collideConnected == false )
+	{
+		b3RemoveJointPairIfUnused( world, bodyA, bodyB );
+	}
 
 	if ( joint->islandId != B3_NULL_INDEX )
 	{
@@ -1017,6 +1060,15 @@ void b3Joint_SetCollideConnected( b3JointId jointId, bool shouldCollide )
 
 	b3Body* bodyA = b3Array_Get( world->bodies, joint->edges[0].bodyId );
 	b3Body* bodyB = b3Array_Get( world->bodies, joint->edges[1].bodyId );
+
+	if ( shouldCollide )
+	{
+		b3RemoveJointPairIfUnused( world, bodyA, bodyB );
+	}
+	else
+	{
+		b3AddJointPair( world, bodyA->id, bodyB->id );
+	}
 
 	if ( shouldCollide )
 	{
@@ -1765,6 +1817,231 @@ void b3SolveJoint( b3JointSim* joint, b3StepContext* context, bool useBias )
 	}
 }
 
+// Width of the wide weld joint solver, or 0 when it is not available
+int b3GetWeldJointBatchWidth( b3StepContext* context )
+{
+#if defined( B3_SIMD_NONE )
+	B3_UNUSED( context );
+	return 0;
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		return 8;
+	}
+#endif
+	B3_UNUSED( context );
+	return 4;
+#endif
+}
+
+void b3WarmStartWeldJoints_Wide( b3JointSim* const* joints, int count, b3StepContext* context )
+{
+#if defined( B3_SIMD_NONE )
+	// Never called, b3GetWeldJointBatchWidth returns 0
+	B3_UNUSED( joints, count, context );
+	B3_ASSERT( false );
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		b3WarmStartWeldJointsW8( joints, count, context );
+		return;
+	}
+#endif
+
+	b3WarmStartWeldJointsW4( joints, count, context );
+#endif
+}
+
+void b3SolveWeldJoints_Wide( b3JointSim* const* joints, int count, b3StepContext* context, bool useBias )
+{
+#if defined( B3_SIMD_NONE )
+	// Never called, b3GetWeldJointBatchWidth returns 0
+	B3_UNUSED( joints, count, context, useBias );
+	B3_ASSERT( false );
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		b3SolveWeldJointsW8( joints, count, context, useBias );
+		return;
+	}
+#endif
+
+	b3SolveWeldJointsW4( joints, count, context, useBias );
+#endif
+}
+
+int b3GetWeldGroupByteCount( b3StepContext* context )
+{
+#if defined( B3_SIMD_NONE )
+	B3_UNUSED( context );
+	return 0;
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		return b3GetWeldGroupByteCountW8();
+	}
+#endif
+	B3_UNUSED( context );
+	return b3GetWeldGroupByteCountW4();
+#endif
+}
+
+void b3WarmStartWeldGroups_Wide( void* groups, int startGroup, int groupCount, b3StepContext* context )
+{
+#if defined( B3_SIMD_NONE )
+	B3_UNUSED( groups, startGroup, groupCount, context );
+	B3_ASSERT( false );
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		b3WarmStartWeldGroupsW8( groups, startGroup, groupCount, context );
+		return;
+	}
+#endif
+	b3WarmStartWeldGroupsW4( groups, startGroup, groupCount, context );
+#endif
+}
+
+void b3SolveWeldGroups_Wide( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount,
+							 b3StepContext* context, bool useBias, b3BitSet* jointStateBitSet )
+{
+#if defined( B3_SIMD_NONE )
+	B3_UNUSED( groups, joints, jointCount, startGroup, groupCount, context, useBias, jointStateBitSet );
+	B3_ASSERT( false );
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		b3SolveWeldGroupsW8( groups, joints, jointCount, startGroup, groupCount, context, useBias, jointStateBitSet );
+		return;
+	}
+#endif
+	b3SolveWeldGroupsW4( groups, joints, jointCount, startGroup, groupCount, context, useBias, jointStateBitSet );
+#endif
+}
+
+void b3StoreWeldGroups_Wide( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount,
+							 b3StepContext* context )
+{
+#if defined( B3_SIMD_NONE )
+	B3_UNUSED( groups, joints, jointCount, startGroup, groupCount, context );
+	B3_ASSERT( false );
+#else
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		b3StoreWeldGroupsW8( groups, joints, jointCount, startGroup, groupCount );
+		return;
+	}
+#endif
+	B3_UNUSED( context );
+	b3StoreWeldGroupsW4( groups, joints, jointCount, startGroup, groupCount );
+#endif
+}
+
+static void b3GatherWeldPrepareLane( const b3JointSim* base, b3StepContext* context, b3WeldPrepareLane* lane )
+{
+	B3_ASSERT( base->type == b3_weldJoint );
+
+	b3World* world = context->world;
+
+	b3Body* bodyA = b3Array_Get( world->bodies, base->bodyIdA );
+	b3Body* bodyB = b3Array_Get( world->bodies, base->bodyIdB );
+
+	B3_ASSERT( bodyA->setIndex == b3_awakeSet || bodyB->setIndex == b3_awakeSet );
+	b3SolverSet* setA = b3GetFixedSolverSet( world, bodyA->setIndex );
+	b3SolverSet* setB = b3GetFixedSolverSet( world, bodyB->setIndex );
+
+	int localIndexA = bodyA->localIndex;
+	int localIndexB = bodyB->localIndex;
+
+	const b3BodySim* bodySimA = b3Array_Get( setA->bodySims, localIndexA );
+	const b3BodySim* bodySimB = b3Array_Get( setB->bodySims, localIndexB );
+
+	lane->indexA = bodyA->setIndex == b3_awakeSet ? localIndexA : B3_NULL_INDEX;
+	lane->indexB = bodyB->setIndex == b3_awakeSet ? localIndexB : B3_NULL_INDEX;
+	lane->invMassA = bodySimA->invMass;
+	lane->invMassB = bodySimB->invMass;
+	lane->invIA = bodySimA->invInertiaWorld;
+	lane->invIB = bodySimB->invInertiaWorld;
+	lane->bodyQA = bodySimA->transform.q;
+	lane->bodyQB = bodySimB->transform.q;
+	lane->localCenterA = bodySimA->localCenter;
+	lane->localCenterB = bodySimB->localCenter;
+	lane->deltaCenter = b3SubPos( bodySimB->center, bodySimA->center );
+	lane->localFrameA = base->localFrameA;
+	lane->localFrameB = base->localFrameB;
+	lane->constraintHertz = base->constraintHertz;
+	lane->constraintDampingRatio = base->constraintDampingRatio;
+
+	const b3WeldJoint* joint = &base->weldJoint;
+	lane->linearHertz = joint->linearHertz;
+	lane->linearDampingRatio = joint->linearDampingRatio;
+	lane->angularHertz = joint->angularHertz;
+	lane->angularDampingRatio = joint->angularDampingRatio;
+	lane->linearImpulse = joint->linearImpulse;
+	lane->angularImpulse = joint->angularImpulse;
+	lane->hasThreshold = base->forceThreshold < FLT_MAX || base->torqueThreshold < FLT_MAX;
+}
+
+void b3PrepareWeldGroup_Wide( void* groups, b3JointSim* joints, int jointCount, int group, b3StepContext* context )
+{
+#if defined( B3_SIMD_NONE )
+	B3_UNUSED( groups, joints, jointCount, group, context );
+	B3_ASSERT( false );
+#else
+	int width = 4;
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( context->world->simdWidth == 8 )
+	{
+		width = 8;
+	}
+#endif
+
+	int first = group * width;
+	int laneCount = b3MinInt( width, jointCount - first );
+	B3_ASSERT( laneCount > 0 );
+
+	b3WeldPrepareLane lanes[8];
+	for ( int k = 0; k < laneCount; ++k )
+	{
+		b3GatherWeldPrepareLane( joints + first + k, context, lanes + k );
+	}
+
+#if defined( B3_SIMD_HAS_WIDTH_8 )
+	if ( width == 8 )
+	{
+		b3PrepareWeldGroupW8( groups, group, lanes, laneCount, context->h, context->inv_h, context->enableWarmStarting );
+		return;
+	}
+#endif
+
+	b3PrepareWeldGroupW4( groups, group, lanes, laneCount, context->h, context->inv_h, context->enableWarmStarting );
+#endif
+}
+
+void b3CheckJointThresholds( b3JointSim* joint, b3StepContext* context, b3BitSet* jointStateBitSet )
+{
+	if ( ( joint->forceThreshold < FLT_MAX || joint->torqueThreshold < FLT_MAX ) &&
+		 b3GetBit( jointStateBitSet, joint->jointId ) == false )
+	{
+		float force, torque;
+		b3GetJointReaction( context->world, joint, context->inv_h, &force, &torque );
+
+		// Check thresholds. A zero threshold means all awake joints get reported.
+		if ( force >= joint->forceThreshold || torque >= joint->torqueThreshold )
+		{
+			// Flag this joint for processing.
+			b3SetBit( jointStateBitSet, joint->jointId );
+		}
+	}
+}
+
 void b3PrepareJoints_Overflow( b3StepContext* context )
 {
 	b3TracyCZoneNC( prepare_joints, "PrepJoints", b3_colorOldLace, true );
@@ -1899,7 +2176,9 @@ void b3DrawJoint( b3DebugDraw* draw, b3World* world, b3Joint* joint )
 			b3_colorChocolate, b3_colorGoldenRod, b3_colorCoral,	b3_colorRosyBrown,
 			b3_colorAqua,	   b3_colorPeru,	  b3_colorLime,		b3_colorGold,
 			b3_colorPlum,	   b3_colorSnow,	  b3_colorTeal,		b3_colorKhaki,
-			b3_colorSalmon,	   b3_colorPeachPuff, b3_colorHoneyDew, b3_colorBlack,
+			b3_colorSalmon,	   b3_colorPeachPuff, b3_colorHoneyDew, b3_colorOrchid,
+			b3_colorTan,	   b3_colorSkyBlue,   b3_colorSlateBlue, b3_colorSeaGreen,
+			b3_colorMaroon,	   b3_colorOlive,	  b3_colorIndigo,	b3_colorBlack,
 		};
 
 		int colorIndex = joint->colorIndex;

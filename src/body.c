@@ -2643,35 +2643,14 @@ bool b3ShouldBodiesCollide( b3World* world, b3Body* bodyA, b3Body* bodyB )
 		return false;
 	}
 
-	int jointKey;
-	int otherBodyId;
-	if ( bodyA->jointCount < bodyB->jointCount )
+	// Bodies without joints are the common case
+	if ( bodyA->jointCount == 0 || bodyB->jointCount == 0 )
 	{
-		jointKey = bodyA->headJointKey;
-		otherBodyId = bodyB->id;
-	}
-	else
-	{
-		jointKey = bodyB->headJointKey;
-		otherBodyId = bodyA->id;
+		return true;
 	}
 
-	while ( jointKey != B3_NULL_INDEX )
-	{
-		int jointId = jointKey >> 1;
-		int edgeIndex = jointKey & 1;
-		int otherEdgeIndex = edgeIndex ^ 1;
-
-		b3Joint* joint = b3Array_Get( world->joints, jointId );
-		if ( joint->collideConnected == false && joint->edges[otherEdgeIndex].bodyId == otherBodyId )
-		{
-			return false;
-		}
-
-		jointKey = joint->edges[edgeIndex].nextKey;
-	}
-
-	return true;
+	uint64_t key = b3ShapePairKey( bodyA->id, bodyB->id, 0 );
+	return b3ContainsKey( &world->broadPhase.jointPairSet, key ) == false;
 }
 
 float b3Body_GetMinExtent( b3BodyId bodyId )

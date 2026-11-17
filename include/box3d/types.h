@@ -618,7 +618,7 @@ typedef struct b3Counters
 	int satCallCount;									   //
 	int satCacheHitCount;								   //
 	int taskCount;										   //
-	int colorCounts[24];								   //
+	int colorCounts[B3_GRAPH_COLOR_COUNT];					   //
 	int manifoldCounts[B3_CONTACT_MANIFOLD_COUNT_BUCKETS]; //
 
 	/// Number of contacts touched by the collide pass

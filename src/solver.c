@@ -24,6 +24,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 // these are useful for solver testing
 #define ITERATIONS 1
@@ -245,13 +246,31 @@ static void b3PrepareJointsTask( b3SolverBlock block, b3StepContext* context )
 		int colorStart = spans[colorIndex].start;
 		int colorEndIndex = b3MinInt( spans[colorIndex + 1].start, endIndex );
 		b3JointSim* joints = spans[colorIndex].joints;
+		void* weldConstraints = spans[colorIndex].weldConstraints;
 
-		// Loop over color
-		for ( ; index < colorEndIndex; ++index )
+		if ( weldConstraints != NULL )
 		{
-			B3_ASSERT( 0 <= index - colorStart && index - colorStart < spans[colorIndex].count );
-			b3JointSim* joint = joints + ( index - colorStart );
-			b3PrepareJoint( joint, context );
+			// A group is prepared by the block that holds its first joint, which may carry on past the end of the
+			// block. A block that starts in the middle of a group skips to the next group.
+			int width = 1 << context->weldGroupShift;
+			int jointCount = spans[colorIndex].count;
+			int firstGroup = ( index - colorStart + width - 1 ) >> context->weldGroupShift;
+			for ( int group = firstGroup; group * width < colorEndIndex - colorStart; ++group )
+			{
+				b3PrepareWeldGroup_Wide( weldConstraints, joints, jointCount, group, context );
+			}
+
+			index = colorEndIndex;
+		}
+		else
+		{
+			// Loop over color
+			for ( ; index < colorEndIndex; ++index )
+			{
+				B3_ASSERT( 0 <= index - colorStart && index - colorStart < spans[colorIndex].count );
+				b3JointSim* joint = joints + ( index - colorStart );
+				b3PrepareJoint( joint, context );
+			}
 		}
 
 		// Advance to next color
@@ -261,6 +280,10 @@ static void b3PrepareJointsTask( b3SolverBlock block, b3StepContext* context )
 	b3TracyCZoneEnd( prepare_joints );
 }
 
+// Joint blocks batch weld joints into the wide solver. This is safe because joints in a graph color
+// don't share dynamic bodies, so the solve order within a color doesn't matter.
+#define B3_MAX_JOINT_BATCH 8
+
 static void b3WarmStartJointsTask( b3SolverBlock block, b3StepContext* context )
 {
 	b3TracyCZoneNC( warm_joints, "WarmJoints", b3_colorGold, true );
@@ -268,13 +291,95 @@ static void b3WarmStartJointsTask( b3SolverBlock block, b3StepContext* context )
 	b3GraphColor* color = context->graph->colors + block.colorIndex;
 	b3JointSim* joints = color->jointSims.data;
 
+	int batchWidth = b3GetWeldJointBatchWidth( context );
+	b3JointSim* batch[B3_MAX_JOINT_BATCH];
+	int batchCount = 0;
+
 	for ( int i = block.startIndex; i < block.startIndex + block.count; ++i )
 	{
 		b3JointSim* joint = joints + i;
-		b3WarmStartJoint( joint, context );
+		if ( batchWidth > 0 && joint->type == b3_weldJoint )
+		{
+			batch[batchCount++] = joint;
+			if ( batchCount == batchWidth )
+			{
+				b3WarmStartWeldJoints_Wide( batch, batchCount, context );
+				batchCount = 0;
+			}
+		}
+		else
+		{
+			b3WarmStartJoint( joint, context );
+		}
+	}
+
+	// A single joint is cheaper in the scalar path
+	if ( batchCount > 1 )
+	{
+		b3WarmStartWeldJoints_Wide( batch, batchCount, context );
+	}
+	else if ( batchCount == 1 )
+	{
+		b3WarmStartJoint( batch[0], context );
 	}
 
 	b3TracyCZoneEnd( warm_joints );
+}
+
+// A graph color that holds only weld joints is solved from the compact weld groups built in the prepare stage
+static void b3WarmStartWeldTask( b3SolverBlock block, b3StepContext* context )
+{
+	b3TracyCZoneNC( warm_welds, "WarmWelds", b3_colorGold, true );
+
+	b3GraphColor* color = context->graph->colors + block.colorIndex;
+	b3WarmStartWeldGroups_Wide( color->weldConstraints, block.startIndex, block.count, context );
+
+	b3TracyCZoneEnd( warm_welds );
+}
+
+static void b3SolveWeldTask( b3SolverBlock block, b3StepContext* context, bool useBias, int workerIndex )
+{
+	b3TracyCZoneNC( solve_welds, "SolveWelds", b3_colorLemonChiffon, true );
+
+	b3GraphColor* color = context->graph->colors + block.colorIndex;
+	b3BitSet* jointStateBitSet = &context->world->taskContexts.data[workerIndex].jointStateBitSet;
+
+	b3SolveWeldGroups_Wide( color->weldConstraints, color->jointSims.data, color->jointSims.count, block.startIndex,
+							block.count, context, useBias, jointStateBitSet );
+
+	b3TracyCZoneEnd( solve_welds );
+}
+
+// Runs over the flat range of weld groups of all colors
+static void b3StoreWeldTask( b3SolverBlock block, b3StepContext* context )
+{
+	b3TracyCZoneNC( store_welds, "StoreWelds", b3_colorLemonChiffon, true );
+
+	b3WeldGroupSpan* spans = context->weldGroupSpans;
+
+	int index = block.startIndex;
+	int endIndex = block.startIndex + block.count;
+
+	// Find color for start index. Linear search but fast.
+	int colorIndex = 0;
+	while ( spans[colorIndex + 1].start <= index )
+	{
+		colorIndex += 1;
+	}
+
+	while ( index < endIndex )
+	{
+		int colorStart = spans[colorIndex].start;
+		int colorEndIndex = b3MinInt( spans[colorIndex + 1].start, endIndex );
+
+		b3StoreWeldGroups_Wide( spans[colorIndex].constraints, spans[colorIndex].joints, spans[colorIndex].jointCount,
+								index - colorStart, colorEndIndex - index, context );
+
+		index = colorEndIndex;
+		colorIndex += 1;
+	}
+
+	b3TracyCZoneEnd( store_welds );
 }
 
 static void b3SolveJointsTask( b3SolverBlock block, b3StepContext* context, bool useBias, int workerIndex )
@@ -288,23 +393,54 @@ static void b3SolveJointsTask( b3SolverBlock block, b3StepContext* context, bool
 
 	b3BitSet* jointStateBitSet = &context->world->taskContexts.data[workerIndex].jointStateBitSet;
 
+	int batchWidth = b3GetWeldJointBatchWidth( context );
+	b3JointSim* batch[B3_MAX_JOINT_BATCH];
+	int batchCount = 0;
+
 	for ( int i = block.startIndex; i < block.startIndex + block.count; ++i )
 	{
 		b3JointSim* joint = joints + i;
-		b3SolveJoint( joint, context, useBias );
-
-		if ( useBias && ( joint->forceThreshold < FLT_MAX || joint->torqueThreshold < FLT_MAX ) &&
-			 b3GetBit( jointStateBitSet, joint->jointId ) == false )
+		if ( batchWidth > 0 && joint->type == b3_weldJoint )
 		{
-			float force, torque;
-			b3GetJointReaction( context->world, joint, context->inv_h, &force, &torque );
-
-			// Check thresholds. A zero threshold means all awake joints get reported.
-			if ( force >= joint->forceThreshold || torque >= joint->torqueThreshold )
+			batch[batchCount++] = joint;
+			if ( batchCount == batchWidth )
 			{
-				// Flag this joint for processing.
-				b3SetBit( jointStateBitSet, joint->jointId );
+				b3SolveWeldJoints_Wide( batch, batchCount, context, useBias );
+				if ( useBias )
+				{
+					for ( int k = 0; k < batchCount; ++k )
+					{
+						b3CheckJointThresholds( batch[k], context, jointStateBitSet );
+					}
+				}
+				batchCount = 0;
 			}
+		}
+		else
+		{
+			b3SolveJoint( joint, context, useBias );
+			if ( useBias )
+			{
+				b3CheckJointThresholds( joint, context, jointStateBitSet );
+			}
+		}
+	}
+
+	// A single joint is cheaper in the scalar path
+	if ( batchCount > 1 )
+	{
+		b3SolveWeldJoints_Wide( batch, batchCount, context, useBias );
+	}
+	else if ( batchCount == 1 )
+	{
+		b3SolveJoint( batch[0], context, useBias );
+	}
+
+	if ( useBias )
+	{
+		for ( int k = 0; k < batchCount; ++k )
+		{
+			b3CheckJointThresholds( batch[k], context, jointStateBitSet );
 		}
 	}
 
@@ -1012,6 +1148,10 @@ static void b3ExecuteBlock( b3SolverStage* stage, b3StepContext* context, b3Solv
 			{
 				b3WarmStartJointsTask( block, context );
 			}
+			else if ( blockType == b3_graphWeldBlock )
+			{
+				b3WarmStartWeldTask( block, context );
+			}
 			else if ( blockType == b3_graphWideContactBlock )
 			{
 				b3WarmStartContacts_Convex( block, context );
@@ -1027,6 +1167,11 @@ static void b3ExecuteBlock( b3SolverStage* stage, b3StepContext* context, b3Solv
 			{
 				bool useBias = true;
 				b3SolveJointsTask( block, context, useBias, workerIndex );
+			}
+			else if ( blockType == b3_graphWeldBlock )
+			{
+				bool useBias = true;
+				b3SolveWeldTask( block, context, useBias, workerIndex );
 			}
 			else if ( blockType == b3_graphWideContactBlock )
 			{
@@ -1047,6 +1192,11 @@ static void b3ExecuteBlock( b3SolverStage* stage, b3StepContext* context, b3Solv
 			{
 				bool useBias = false;
 				b3SolveJointsTask( block, context, useBias, workerIndex );
+			}
+			else if ( blockType == b3_graphWeldBlock )
+			{
+				bool useBias = false;
+				b3SolveWeldTask( block, context, useBias, workerIndex );
 			}
 			else if ( blockType == b3_graphWideContactBlock )
 			{
@@ -1075,6 +1225,10 @@ static void b3ExecuteBlock( b3SolverStage* stage, b3StepContext* context, b3Solv
 
 		case b3_stageStoreImpulses:
 			b3StoreImpulses_MeshWide( block, context, workerIndex );
+			break;
+
+		case b3_stageStoreWeldImpulses:
+			b3StoreWeldTask( block, context );
 			break;
 	}
 }
@@ -1367,6 +1521,12 @@ static void b3SolverTask( void* taskContext )
 		b3ExecuteMainStage( stages + stageIndex, context, syncBits );
 		stageIndex += 1;
 
+		uint32_t weldSyncIndex = 1;
+		syncBits = ( weldSyncIndex << 16 ) | stageIndex;
+		B3_ASSERT( stages[stageIndex].type == b3_stageStoreWeldImpulses );
+		b3ExecuteMainStage( stages + stageIndex, context, syncBits );
+		stageIndex += 1;
+
 		profile->storeImpulses += b3GetMillisecondsAndReset( &ticks );
 
 		// Signal workers to finish
@@ -1511,6 +1671,9 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		int colorMeshContactCounts[B3_GRAPH_COLOR_COUNT];
 		int colorMeshGroupCounts[B3_GRAPH_COLOR_COUNT];
 		int colorJointCounts[B3_GRAPH_COLOR_COUNT];
+
+		// Colors that hold only weld joints are solved from compact wide weld groups. 0 for other colors.
+		int colorWeldGroupCounts[B3_GRAPH_COLOR_COUNT];
 		b3BlockDim graphWideContactDims[B3_GRAPH_COLOR_COUNT];
 		b3BlockDim graphMeshContactDims[B3_GRAPH_COLOR_COUNT];
 		b3BlockDim graphJointDims[B3_GRAPH_COLOR_COUNT];
@@ -1521,6 +1684,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		int meshContactCount = 0;
 		int meshGroupCount = 0;
 		int jointCount = 0;
+		int weldGroupCount = 0;
+		int weldGroupByteCount = b3GetWeldGroupByteCount( stepContext );
 		int c = 0;
 		for ( int i = 0; i < B3_GRAPH_COLOR_COUNT - 1; ++i )
 		{
@@ -1555,6 +1720,30 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 			graphWideContactDims[c] = b3ComputeBlockCount( colorWideConstraintCount, minContactsPerBlock, maxBlockCount );
 			graphMeshContactDims[c] = b3ComputeBlockCount( colorMeshGroupCount, minContactsPerBlock, maxBlockCount );
 			graphJointDims[c] = b3ComputeBlockCount( colorJointCount, minJointsPerBlock, maxBlockCount );
+
+			colorWeldGroupCounts[c] = 0;
+			if ( weldGroupByteCount > 0 && colorJointCount > 0 )
+			{
+				bool onlyWelds = true;
+				const b3JointSim* colorJoints = color->jointSims.data;
+				for ( int k = 0; k < colorJointCount; ++k )
+				{
+					if ( colorJoints[k].type != b3_weldJoint )
+					{
+						onlyWelds = false;
+						break;
+					}
+				}
+
+				if ( onlyWelds )
+				{
+					int groupCount = ( ( colorJointCount - 1 ) >> simdShift ) + 1;
+					colorWeldGroupCounts[c] = groupCount;
+					weldGroupCount += groupCount;
+					graphJointDims[c] = b3ComputeBlockCount( groupCount, minJointsPerBlock, maxBlockCount );
+				}
+			}
+
 			graphBlockCount += graphWideContactDims[c].count + graphMeshContactDims[c].count + graphJointDims[c].count;
 
 			c += 1;
@@ -1570,6 +1759,14 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 
 		int wideContactByteCount = b3GetWideContactConstraintByteCount( world->simdWidth );
 		void* wideConstraints = b3StackAlloc( &world->stack, wideContactCount * wideContactByteCount, "wide contacts" );
+
+		// Compact weld groups followed by the blocks of the store stage
+		b3BlockDim weldStoreDim = b3ComputeBlockCount( weldGroupCount, minJointsPerBlock, maxBlockCount );
+		int weldStoreBlockCount = weldGroupCount > 0 ? weldStoreDim.count : 0;
+		uint8_t* weldMemory = b3StackAlloc( &world->stack,
+											weldGroupCount * weldGroupByteCount + weldStoreBlockCount * (int)sizeof( b3SyncBlock ),
+											"weld constraints" );
+		b3SyncBlock* weldStoreBlocks = (b3SyncBlock*)( weldMemory + weldGroupCount * weldGroupByteCount );
 
 		int* meshLaneOrder = b3StackAlloc( &world->stack, meshContactCount * sizeof( int ), "mesh lane order" );
 		int* meshManifoldStarts = b3StackAlloc( &world->stack, ( meshGroupCount + 1 ) * sizeof( int ), "mesh manifold starts" );
@@ -1674,6 +1871,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		b3WidePrepareSpan widePrepareSpans[B3_GRAPH_COLOR_COUNT + 1];
 		b3MeshPrepareSpan meshPrepareSpans[B3_GRAPH_COLOR_COUNT + 1];
 		b3JointPrepareSpan jointPrepareSpans[B3_GRAPH_COLOR_COUNT + 1];
+		b3WeldGroupSpan weldGroupSpans[B3_GRAPH_COLOR_COUNT + 1];
 
 		// Distribute transient constraints to each graph color and prepare spans
 		{
@@ -1681,6 +1879,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 			int contactBase = 0;
 			int meshGroupBase = 0;
 			int jointBase = 0;
+			int weldBase = 0;
 			for ( int i = 0; i < activeColorCount; ++i )
 			{
 				int j = activeColorIndices[i];
@@ -1732,6 +1931,24 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 				jointPrepareSpans[i].count = color->jointSims.count;
 				jointPrepareSpans[i].joints = color->jointSims.data;
 				jointBase += color->jointSims.count;
+
+				int colorWeldGroupCount = colorWeldGroupCounts[i];
+				weldGroupSpans[i].start = weldBase;
+				weldGroupSpans[i].count = colorWeldGroupCount;
+				weldGroupSpans[i].joints = color->jointSims.data;
+				weldGroupSpans[i].jointCount = color->jointSims.count;
+				if ( colorWeldGroupCount > 0 )
+				{
+					color->weldConstraints = weldMemory + weldBase * weldGroupByteCount;
+					weldBase += colorWeldGroupCount;
+				}
+				else
+				{
+					color->weldConstraints = NULL;
+				}
+
+				weldGroupSpans[i].constraints = color->weldConstraints;
+				jointPrepareSpans[i].weldConstraints = color->weldConstraints;
 			}
 
 			// Sentinels
@@ -1750,7 +1967,15 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 			jointPrepareSpans[activeColorCount].start = jointCount;
 			jointPrepareSpans[activeColorCount].count = 0;
 			jointPrepareSpans[activeColorCount].joints = NULL;
+			jointPrepareSpans[activeColorCount].weldConstraints = NULL;
 			B3_ASSERT( jointBase == jointCount );
+
+			weldGroupSpans[activeColorCount].start = weldGroupCount;
+			weldGroupSpans[activeColorCount].count = 0;
+			weldGroupSpans[activeColorCount].constraints = NULL;
+			weldGroupSpans[activeColorCount].joints = NULL;
+			weldGroupSpans[activeColorCount].jointCount = 0;
+			B3_ASSERT( weldBase == weldGroupCount );
 		}
 
 		//// Special span for overflow to allow for function re-use
@@ -1785,6 +2010,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		// b3_stageStoreWideImpulses
 		stageCount += 1;
 		// b3_stageStoreImpulses
+		stageCount += 1;
+		// b3_stageStoreWeldImpulses
 		stageCount += 1;
 
 		b3SolverStage* stages = b3StackAlloc( &world->stack, stageCount * sizeof( b3SolverStage ), "stages" );
@@ -1834,7 +2061,14 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 			graphColorBlocks[i] = baseGraphBlock;
 
 			uint8_t colorIndex = (uint8_t)activeColorIndices[i];
-			b3InitBlocks( baseGraphBlock, graphJointDims[i], colorJointCounts[i], b3_graphJointBlock, colorIndex );
+			if ( colorWeldGroupCounts[i] > 0 )
+			{
+				b3InitBlocks( baseGraphBlock, graphJointDims[i], colorWeldGroupCounts[i], b3_graphWeldBlock, colorIndex );
+			}
+			else
+			{
+				b3InitBlocks( baseGraphBlock, graphJointDims[i], colorJointCounts[i], b3_graphJointBlock, colorIndex );
+			}
 			baseGraphBlock += graphJointDims[i].count;
 
 			b3InitBlocks( baseGraphBlock, graphWideContactDims[i], colorWideContactCounts[i], b3_graphWideContactBlock,
@@ -1848,6 +2082,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		}
 
 		B3_ASSERT( (ptrdiff_t)( baseGraphBlock - graphBlocks ) == graphBlockCount );
+
+		b3InitBlocks( weldStoreBlocks, weldStoreDim, weldGroupCount, b3_weldBlock, UINT8_MAX );
 
 		b3SolverStage* stage = stages;
 		stage = b3InitStage( stage, b3_stagePrepareJoints, jointBlocks, jointPrepareDim.count, UINT8_MAX );
@@ -1865,6 +2101,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 								   activeColorIndices );
 		stage = b3InitStage( stage, b3_stageStoreWideImpulses, convexBlocks, convexPrepareDim.count, UINT8_MAX );
 		stage = b3InitStage( stage, b3_stageStoreImpulses, meshBlocks, meshPrepareDim.count, UINT8_MAX );
+		stage = b3InitStage( stage, b3_stageStoreWeldImpulses, weldStoreBlocks, weldStoreBlockCount, UINT8_MAX );
 
 		B3_ASSERT( (int)( stage - stages ) == stageCount );
 
@@ -1884,6 +2121,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		stepContext->wideMeshManifoldStarts = meshManifoldStarts;
 		stepContext->meshPrepareSpans = meshPrepareSpans;
 		stepContext->jointPrepareSpans = jointPrepareSpans;
+		stepContext->weldGroupSpans = weldGroupSpans;
+		stepContext->weldGroupShift = simdShift;
 		b3AtomicStoreU32( &stepContext->atomicSyncBits, 0 );
 		b3AtomicStoreInt( &stepContext->mainClaimed, 0 );
 
@@ -1991,6 +2230,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		b3StackFree( &world->stack, wideMeshConstraints );
 		b3StackFree( &world->stack, meshManifoldStarts );
 		b3StackFree( &world->stack, meshLaneOrder );
+		b3StackFree( &world->stack, weldMemory );
 		b3StackFree( &world->stack, wideConstraints );
 
 		world->profile.transforms = b3GetMilliseconds( transformTicks );

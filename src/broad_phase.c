@@ -25,6 +25,7 @@ void b3CreateBroadPhase( b3BroadPhase* bp, const b3Capacity* capacity )
 	_Static_assert( b3_bodyTypeCount == 3, "must be three body types" );
 
 	bp->pairSet = b3CreateSet( b3MaxInt( 32, 2 * capacity->contactCount ) );
+	bp->jointPairSet = b3CreateSet( 32 );
 
 	int staticCapacity = b3MaxInt( 16, capacity->staticShapeCount );
 	bp->trees[b3_staticBody] = b3DynamicTree_Create( staticCapacity );
@@ -46,6 +47,7 @@ void b3DestroyBroadPhase( b3BroadPhase* bp )
 	}
 
 	b3DestroySet( &bp->pairSet );
+	b3DestroySet( &bp->jointPairSet );
 
 	memset( bp, 0, sizeof( b3BroadPhase ) );
 }

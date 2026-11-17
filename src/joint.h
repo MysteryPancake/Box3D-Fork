@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "bitset.h"
 #include "math_internal.h"
 #include "solver.h"
 
@@ -389,6 +390,63 @@ b3JointSim* b3GetJointSimCheckType( b3JointId jointId, b3JointType type );
 void b3PrepareJoint( b3JointSim* joint, b3StepContext* context );
 void b3WarmStartJoint( b3JointSim* joint, b3StepContext* context );
 void b3SolveJoint( b3JointSim* joint, b3StepContext* context, bool useBias );
+
+// Wide weld joint solver. Joints in one batch must not share a dynamic body, so batches come from one graph color.
+// count is in [1, b3GetWeldJointBatchWidth()]. Unused lanes are ignored.
+int b3GetWeldJointBatchWidth( b3StepContext* context );
+void b3WarmStartWeldJoints_Wide( b3JointSim* const* joints, int count, b3StepContext* context );
+void b3SolveWeldJoints_Wide( b3JointSim* const* joints, int count, b3StepContext* context, bool useBias );
+void b3WarmStartWeldJointsW4( b3JointSim* const* joints, int count, b3StepContext* context );
+void b3SolveWeldJointsW4( b3JointSim* const* joints, int count, b3StepContext* context, bool useBias );
+void b3WarmStartWeldJointsW8( b3JointSim* const* joints, int count, b3StepContext* context );
+void b3SolveWeldJointsW8( b3JointSim* const* joints, int count, b3StepContext* context, bool useBias );
+
+// Compact weld groups for graph colors that hold only weld joints. Joint i of the color is lane
+// i % width of group i / width. See weld_joint_wide.inl.
+int b3GetWeldGroupByteCount( b3StepContext* context );
+void b3WarmStartWeldGroups_Wide( void* groups, int startGroup, int groupCount, b3StepContext* context );
+void b3SolveWeldGroups_Wide( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount,
+							 b3StepContext* context, bool useBias, b3BitSet* jointStateBitSet );
+void b3StoreWeldGroups_Wide( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount,
+							 b3StepContext* context );
+int b3GetWeldGroupByteCountW4( void );
+void b3WarmStartWeldGroupsW4( void* groups, int startGroup, int groupCount, b3StepContext* context );
+void b3SolveWeldGroupsW4( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount,
+						  b3StepContext* context, bool useBias, b3BitSet* jointStateBitSet );
+void b3StoreWeldGroupsW4( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount );
+int b3GetWeldGroupByteCountW8( void );
+void b3WarmStartWeldGroupsW8( void* groups, int startGroup, int groupCount, b3StepContext* context );
+void b3SolveWeldGroupsW8( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount,
+						  b3StepContext* context, bool useBias, b3BitSet* jointStateBitSet );
+void b3StoreWeldGroupsW8( void* groups, b3JointSim* joints, int jointCount, int startGroup, int groupCount );
+
+// Everything the wide weld prepare needs for one joint, read from the joint and its two bodies.
+typedef struct b3WeldPrepareLane
+{
+	int indexA, indexB;
+	float invMassA, invMassB;
+	b3Matrix3 invIA, invIB;
+	b3Quat bodyQA, bodyQB;
+	b3Vec3 localCenterA, localCenterB;
+	b3Vec3 deltaCenter;
+	b3Transform localFrameA, localFrameB;
+	float constraintHertz, constraintDampingRatio;
+	float linearHertz, linearDampingRatio;
+	float angularHertz, angularDampingRatio;
+	b3Vec3 linearImpulse, angularImpulse;
+	bool hasThreshold;
+} b3WeldPrepareLane;
+
+// Prepare group g of a pure weld color and write it into the compact weld groups. Replaces b3PrepareJoint for
+// those joints. The joint sims are only read, so their prepared fields are not updated.
+void b3PrepareWeldGroup_Wide( void* groups, b3JointSim* joints, int jointCount, int group, b3StepContext* context );
+void b3PrepareWeldGroupW4( void* groups, int group, const b3WeldPrepareLane* lanes, int laneCount, float h, float invH,
+						   bool enableWarmStarting );
+void b3PrepareWeldGroupW8( void* groups, int group, const b3WeldPrepareLane* lanes, int laneCount, float h, float invH,
+						   bool enableWarmStarting );
+
+// Flags the joint if its reaction is over a threshold. Call after a solve with bias.
+void b3CheckJointThresholds( b3JointSim* joint, b3StepContext* context, b3BitSet* jointStateBitSet );
 
 void b3PrepareJoints_Overflow( b3StepContext* context );
 void b3WarmStartJoints_Overflow( b3StepContext* context );

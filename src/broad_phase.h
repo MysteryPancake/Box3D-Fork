@@ -32,6 +32,11 @@ typedef struct b3BroadPhase
 	// Tracks shape pairs that have a b3Contact
 	// todo pairSet can grow quite large on the first time step and remain large
 	b3HashSet pairSet;
+
+	// Body pairs joined by at least one joint that has collideConnected false. Shape pairs that fail the
+	// joint test never get a contact, so they are tested again every time either shape moves. This makes
+	// that test one hash lookup instead of a walk of a body's joint list.
+	b3HashSet jointPairSet;
 } b3BroadPhase;
 
 void b3CreateBroadPhase( b3BroadPhase* bp, const b3Capacity* capacity );

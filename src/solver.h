@@ -78,6 +78,7 @@ typedef enum b3SolverStageType
 	b3_stageRestitution,
 	b3_stageStoreWideImpulses,
 	b3_stageStoreImpulses,
+	b3_stageStoreWeldImpulses,
 } b3SolverStageType;
 
 typedef enum b3SolverBlockType
@@ -96,6 +97,13 @@ typedef enum b3SolverBlockType
 
 	// Block for iterating across joints of a single graph color.
 	b3_graphJointBlock,
+
+	// Block for iterating across wide weld groups of a single graph color. Replaces the joint blocks of a
+	// color that holds only weld joints.
+	b3_graphWeldBlock,
+
+	// Block for iterating across wide weld groups of all colors. For store.
+	b3_weldBlock,
 
 	// Block for iterating across wide contacts of a single graph color.
 	b3_graphWideContactBlock,
@@ -176,7 +184,21 @@ typedef struct b3JointPrepareSpan
 	int start;
 	int count;
 	b3JointSim* joints;
+
+	// Compact weld groups of the color, or NULL. The prepare task packs each joint into it.
+	void* weldConstraints;
 } b3JointPrepareSpan;
+
+// Maps a slice of the flat range of weld groups to the owning color. The spans array has one entry per active
+// color plus a sentinel whose start is the total group count.
+typedef struct b3WeldGroupSpan
+{
+	int start;
+	int count;
+	void* constraints;
+	b3JointSim* joints;
+	int jointCount;
+} b3WeldGroupSpan;
 
 // Context for a time step. Recreated each time step.
 typedef struct b3StepContext
@@ -235,6 +257,8 @@ typedef struct b3StepContext
 	int* wideMeshManifoldStarts;
 	b3MeshPrepareSpan* meshPrepareSpans;
 	b3JointPrepareSpan* jointPrepareSpans;
+	b3WeldGroupSpan* weldGroupSpans;
+	int weldGroupShift;
 
 	int activeColorCount;
 	int workerCount;

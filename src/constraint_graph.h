@@ -46,6 +46,10 @@ typedef struct b3GraphColor
 	// cache friendly arrays
 	b3Array( b3JointSim ) jointSims;
 
+	// Transient, set up every step. Compact wide weld constraints when this color holds only weld joints,
+	// otherwise NULL.
+	void* weldConstraints;
+
 	b3Array( int ) convexContacts;
 	b3Array( b3ContactSpec ) contacts;
 

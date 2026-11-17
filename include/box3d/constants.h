@@ -38,8 +38,11 @@ B3_API float b3GetLengthUnitsPerMeter( void );
 
 // Maximum number of colors in the constraint graph. Constraints that cannot
 // find a color are added to the overflow set which are solved single-threaded.
-// The compound barrel benchmark has minor overflow with 24 colors
-#define B3_GRAPH_COLOR_COUNT 24
+// The compound barrel benchmark has minor overflow with 24 colors.
+// Dense joint networks (e.g. voronoi fracture) need more colors because every joint and
+// contact on a body needs its own color. More colors means more solver sync points per
+// substep, so only raise this if the overflow color is heavily used.
+#define B3_GRAPH_COLOR_COUNT 32
 
 // Number of contact point buckets for counting the number of contact points per
 // shape contact pair. This is just for reporting and doesn't affect simulation.

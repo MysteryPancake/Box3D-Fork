@@ -10,7 +10,12 @@
 #include <math.h>
 
 #define OVERFLOW_PILE_RING_COUNT 5
-#define OVERFLOW_PILE_PER_RING 5
+#define OVERFLOW_PILE_PER_RING 6
+
+// The hub's contact degree must exceed the number of dynamic graph colors (B3_GRAPH_COLOR_COUNT - 4)
+// or nothing lands in the overflow color and the test becomes a no-op.
+_Static_assert( OVERFLOW_PILE_RING_COUNT * OVERFLOW_PILE_PER_RING > B3_GRAPH_COLOR_COUNT - 4,
+				"overflow pile needs more neighbors for the current graph color count" );
 
 OverflowColorPileData CreateOverflowColorPile( b3WorldId worldId )
 {

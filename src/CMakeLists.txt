@@ -97,6 +97,7 @@ set(BOX3D_SOURCE_FILES
 	types.c
 	verstable.h
 	weld_joint.c
+	weld_joint_wide.inl
 	wheel_joint.c
 	wide4.c
 	wide8.c

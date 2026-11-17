@@ -14,8 +14,11 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 - Planes have no debug draw shape, because they are infinite.
 - The spherical joint's angular spring restores tilt independently of twist about the joint's z-axis. Before, the tilt force fell to zero at 180 degrees of twist and the body settled at a heavy tilt.
 - `b3CreateHull` no longer hangs on a nearly flat point set (a slab a few times thicker than the builder tolerance). It builds a thin hull from a slightly thickened copy of the points instead.
+- Weld joints are solved with SIMD, several joints per lane. A graph color that holds only weld joints is solved from a compact per-step array.
+- Bodies joined by a joint with `collideConnected` false are looked up in a hash set when the broad phase makes pairs, instead of walking the body's joint list.
+- `B3_GRAPH_COLOR_COUNT` is raised from 24 to 32 so dense joint networks overflow less.
 
-Notes for agents working in this repository are in [AGENTS.md](AGENTS.md).
+Notes for agents working in this repository are in [CLAUDE.md](CLAUDE.md).
 
 [![Build Status](https://github.com/erincatto/box3d/actions/workflows/build.yml/badge.svg)](https://github.com/erincatto/box3d/actions)
 [![CLA assistant](https://cla-assistant.io/readme/badge/erincatto/box3d)](https://cla-assistant.io/erincatto/box3d)

@@ -100,3 +100,71 @@ a debug draw shape, a setter for the plane. Compound children cannot be planes.
 
 **Tests.** The Houdini repo's `tests/core_plane.cpp` covers resting shapes, a raised and a tilted plane, a trough of two
 planes, a 400 m/s sphere (no tunnelling) and refused input. The fork has no plane test of its own.
+
+## Wide weld joint solver (`src/weld_joint_wide.inl`)
+
+**Problem.** Joints were solved one at a time in scalar code. A scene with tens of thousands of weld joints (Glue,
+Hard) spent most of its step in joint warm start, solve and relax.
+
+**Kernel.** `weld_joint_wide.inl` is included by `wide4.c` and `wide8.c` after `contact_solver_wide.inl`, so it reuses
+that file's wide types and `b3GatherBodies` / `b3ScatterBodies`, and the W4 / W8 choice follows `world->simdWidth` like
+the contact solver (`B3_WIDE( name )` gives `nameW4` / `nameW8`). One joint per lane. `b3WeldLanes` holds one group of
+`B3_SIMD_WIDTH` joints as plain per-lane float arrays. `b3SolveWeldLanes` / `b3WarmStartWeldLanes` are
+`b3SolveWeldJoint` / `b3WarmStartWeldJoint` with the branches turned into lane masks: the quaternion polarity flip,
+`fixedRotation`, the spring terms (only joints with a spring use them when `useBias` is false), the swing / twist
+angular error (`b3WeldAngularErrorW`, identity target) and the singular check in the point constraint
+(`b3SolvePointConstraintW`). Lanes past the end of a group have body index 0 (a static body), so their results are
+discarded. Not built when `B3_SIMD_NONE`; `b3GetWeldJointBatchWidth` and `b3GetWeldGroupByteCount` then return 0 and the
+scalar path runs.
+
+**Two ways to feed it.** Both need the joints of a group to share no dynamic body, which holds within one graph color.
+The overflow color stays scalar.
+- Batches (`b3SolveWeldJoints`, `b3WarmStartWeldJoints`): `b3WarmStartJointsTask` / `b3SolveJointsTask` in `solver.c`
+  collect the weld joints of a block, gather their lanes from `b3JointSim` on every call and write the impulses back.
+  Used for colors that mix joint types. A leftover of one joint goes scalar.
+- Groups (`b3PrepareWeldGroup`, `b3WarmStartWeldGroups`, `b3SolveWeldGroups`, `b3StoreWeldGroups`): used for a color whose
+  joints are all welds (checked in the solver setup). Joint `i` of the color is lane `i % width` of group `i / width`.
+  Each group is prepared straight into the color's `weldConstraints` array in the prepare stage
+  (`b3PrepareJointsTask` calls `b3PrepareWeldGroup_Wide`), the substeps read only that array, and the new stage `b3_stageStoreWeldImpulses` writes the impulses back to the joint
+  sims at the end (the next step, `b3GetJointReaction` and the feedback read them there). Memory is one stack
+  allocation (`weld constraints`) holding the groups and the store stage's blocks. The color's graph blocks become
+  `b3_graphWeldBlock` blocks counted in groups. 
+  Force and torque thresholds are checked from the group solve (`b3CheckJointThresholds`, shared with the scalar path).
+
+**Why groups.** The wide maths alone gave about 3x on solve, but warm start was bound by memory traffic through the large
+`b3JointSim` structs. Groups cut the per-joint data from the union-sized sim to one contiguous array.
+
+**Wide prepare.** `b3GatherWeldPrepareLane` (`joint.c`, plain C) reads one joint and its two bodies into a
+`b3WeldPrepareLane`. `b3PrepareWeldGroup` (the `.inl`) writes those into the group's lane arrays and does the maths wide:
+the frame quaternions and anchors, the angular mass (inverse of the summed inverse inertia, zero and fixed rotation when
+singular) and the softness (`b3MakeSoftW`, a joint without its own spring uses the constraint softness). The joint sims
+are only read: their prepared fields (`frameA`, `angularMass`, `indexA`, ...) are not updated, and nothing reads them for
+a weld in a pure weld color. A prepare block prepares the groups whose first joint it holds, so a group that straddles
+two blocks is prepared once, by the earlier block. Lanes past the end of a color use body index 0.
+
+**Not done.** Other joint types (spherical, revolute, prismatic, motor, distance, wheel, parallel, pogo, mover) are
+scalar. Mixed colors use batches, which still gather, and their prepare is scalar.
+
+**Tests.** None in this repo. The Houdini repo's `tests/core_joints.cpp`, `core_glue.cpp` and `core_sidefx.cpp` run weld
+joints; compare their results with the scalar path.
+
+## Joint pair set for pair creation (`src/broad_phase.c`, `src/body.c`, `src/joint.c`)
+
+**Problem.** `b3ShouldBodiesCollide` walked a body's joint list for every candidate shape pair. A pair rejected by a
+joint with `collideConnected` false never becomes a contact, so it is not in `pairSet` and is tested again whenever
+either shape moves. In a scene where every body has about 14 glue joints this was a large part of the pairs time.
+
+**Fix.** `b3BroadPhase::jointPairSet` holds the key (`b3ShapePairKey( bodyIdA, bodyIdB, 0 )`) of every body pair joined
+by at least one joint with `collideConnected` false. `b3ShouldBodiesCollide` returns true at once if either body has no
+joints, otherwise it is one `b3ContainsKey`. It is kept in sync in `joint.c`: `b3AddJointPair` when such a joint is
+created or has the flag cleared, `b3RemoveJointPairIfUnused` when it is destroyed or the flag is set. The removal walks
+the shorter joint list for another joint joining the same two bodies, so two joints between one pair keep the key. The set
+is saved and restored with the world snapshot next to `pairSet`. Pair creation only reads it, and it is only written
+outside the step.
+
+## Graph color count (`include/box3d/constants.h`)
+
+`B3_GRAPH_COLOR_COUNT` is 32 (was 24), so dense joint networks overflow less. The overflow color is still the last one,
+the dynamic colors are `B3_GRAPH_COLOR_COUNT - 4`, and the color name tables in `constraint_graph.c`, `joint.c` and
+`physics_world.c`, `b3Counters::colorCounts` and the overflow color test scene follow the constant. More colors means
+more solver sync points per substep.

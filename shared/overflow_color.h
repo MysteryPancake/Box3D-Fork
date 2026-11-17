@@ -10,7 +10,7 @@ extern "C"
 #endif
 
 // One heavy dynamic hub surrounded by enough dynamic neighbors that the hub's
-// degree in the dyn-dyn contact graph exceeds B3_DYNAMIC_COLOR_COUNT (= 20).
+// degree in the dyn-dyn contact graph exceeds B3_DYNAMIC_COLOR_COUNT (= B3_GRAPH_COLOR_COUNT - 4).
 // The excess contacts land in the overflow color (B3_GRAPH_COLOR_COUNT - 1),
 // exercising the b3*_Overflow solver path that no other scene reaches.
 typedef struct OverflowColorPileData

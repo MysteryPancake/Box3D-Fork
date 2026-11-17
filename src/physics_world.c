@@ -1397,7 +1397,9 @@ void b3World_Draw( b3WorldId worldId, b3DebugDraw* draw, uint64_t maskBits )
 		b3_colorRed,	b3_colorOrange, b3_colorYellow,	   b3_colorGreen,	  b3_colorCyan,		b3_colorBlue,
 		b3_colorViolet, b3_colorPink,	b3_colorChocolate, b3_colorGoldenRod, b3_colorCoral,	b3_colorRosyBrown,
 		b3_colorAqua,	b3_colorPeru,	b3_colorLime,	   b3_colorGold,	  b3_colorPlum,		b3_colorSnow,
-		b3_colorTeal,	b3_colorKhaki,	b3_colorSalmon,	   b3_colorPeachPuff, b3_colorHoneyDew, b3_colorBlack,
+		b3_colorTeal,	b3_colorKhaki,	b3_colorSalmon,	   b3_colorPeachPuff, b3_colorHoneyDew, b3_colorOrchid,
+		b3_colorTan,	b3_colorSkyBlue, b3_colorSlateBlue, b3_colorSeaGreen,	b3_colorMaroon,	b3_colorOlive,
+		b3_colorIndigo, b3_colorBlack,
 	};
 
 	int bodyCapacity = b3GetIdCapacity( &world->bodyIdPool );
