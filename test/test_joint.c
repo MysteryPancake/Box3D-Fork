@@ -3,6 +3,8 @@
 
 #include "test_macros.h"
 
+#include <math.h>
+
 #include "box3d/box3d.h"
 #include "box3d/math_functions.h"
 
@@ -777,6 +779,131 @@ static int TestNonDynamicJointDisable( void )
 	return 0;
 }
 
+enum
+{
+	e_springSpherical,
+	e_springMotor,
+	e_springWeld,
+};
+
+// A capsule tilted 70 degrees and twisted about its own axis, held by an angular spring that targets upright.
+// The spring must restore the tilt whatever the twist. Spherical: the twist is free. Motor and weld: a spring-less
+// spherical joint holds the pivot and pins the twist.
+static int RunAngularSpringTwist( int kind, float twistDegrees, bool pinTwist )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+
+	b3BodyDef anchorDef = b3DefaultBodyDef();
+	b3BodyId anchorId = b3CreateBody( worldId, &anchorDef );
+
+	// Frame z-axis is the capsule axis. Rotate it to world up, so the target (identity) is upright.
+	b3Quat frameQ = b3MakeQuatFromAxisAngle( b3Vec3_axisX, -0.5f * B3_PI );
+	b3Pos pivot = { 0.0f, 3.0f, 0.0f };
+
+	b3Quat tiltQ = b3MakeQuatFromAxisAngle( b3Vec3_axisX, 70.0f * B3_PI / 180.0f );
+	b3Quat twistQ = b3MakeQuatFromAxisAngle( b3Vec3_axisZ, twistDegrees * B3_PI / 180.0f );
+
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.type = b3_dynamicBody;
+	bodyDef.position = pivot;
+	bodyDef.rotation = b3MulQuat( frameQ, b3MulQuat( tiltQ, twistQ ) );
+	b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	shapeDef.density = 1.0f;
+	b3Capsule capsule = { { 0.0f, 0.0f, 0.3f }, { 0.0f, 0.0f, 2.0f }, 0.3f };
+	b3CreateCapsuleShape( bodyId, &shapeDef, &capsule );
+
+	b3Vec3 p = { pivot.x, pivot.y, pivot.z };
+	float twistRadians = twistDegrees * B3_PI / 180.0f;
+
+	if ( kind == e_springSpherical )
+	{
+		b3SphericalJointDef def = b3DefaultSphericalJointDef();
+		def.base.bodyIdA = anchorId;
+		def.base.bodyIdB = bodyId;
+		def.base.localFrameA.p = p;
+		def.base.localFrameA.q = frameQ;
+		def.enableSpring = true;
+		def.hertz = 1.5f;
+		def.dampingRatio = 0.3f;
+		def.targetRotation = b3Quat_identity;
+		b3CreateSphericalJoint( worldId, &def );
+	}
+	else
+	{
+		b3SphericalJointDef anchor = b3DefaultSphericalJointDef();
+		anchor.base.bodyIdA = anchorId;
+		anchor.base.bodyIdB = bodyId;
+		anchor.base.localFrameA.p = p;
+		anchor.base.localFrameA.q = frameQ;
+		if ( pinTwist )
+		{
+			anchor.enableTwistLimit = true;
+			anchor.lowerTwistAngle = twistRadians - 0.0175f;
+			anchor.upperTwistAngle = twistRadians + 0.0175f;
+		}
+		b3CreateSphericalJoint( worldId, &anchor );
+
+		if ( kind == e_springMotor )
+		{
+			b3MotorJointDef def = b3DefaultMotorJointDef();
+			def.base.bodyIdA = anchorId;
+			def.base.bodyIdB = bodyId;
+			def.base.localFrameA.p = p;
+			def.base.localFrameA.q = frameQ;
+			def.linearHertz = 0.0f;
+			def.maxSpringForce = 0.0f;
+			def.angularHertz = 1.5f;
+			def.angularDampingRatio = 0.3f;
+			def.maxSpringTorque = 1.0e6f;
+			b3CreateMotorJoint( worldId, &def );
+		}
+		else
+		{
+			b3WeldJointDef def = b3DefaultWeldJointDef();
+			def.base.bodyIdA = anchorId;
+			def.base.bodyIdB = bodyId;
+			def.base.localFrameA.p = p;
+			def.base.localFrameA.q = frameQ;
+			def.linearHertz = 0.0f;
+			def.angularHertz = 1.5f;
+			def.angularDampingRatio = 0.3f;
+			b3CreateWeldJoint( worldId, &def );
+		}
+	}
+
+	// Gravity pulls the capsule over while the spring pulls it up.
+	for ( int i = 0; i < 720; ++i )
+	{
+		b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	}
+
+	// angle between the capsule axis and world up
+	b3Vec3 axis = b3RotateVector( b3Body_GetRotation( bodyId ), b3Vec3_axisZ );
+	float tilt = acosf( b3ClampFloat( axis.y, -1.0f, 1.0f ) );
+
+	b3DestroyWorld( worldId );
+
+	ENSURE( tilt < 5.0f * B3_PI / 180.0f );
+	return 0;
+}
+
+static int TestAngularSpringTwist( void )
+{
+	// Spherical spring with free twist, a pure twist of 180 degrees
+	ENSURE( RunAngularSpringTwist( e_springSpherical, 180.0f, false ) == 0 );
+	ENSURE( RunAngularSpringTwist( e_springSpherical, 90.0f, false ) == 0 );
+
+	// Twist pinned near 170 degrees (the spherical twist limit stops at 0.99 pi)
+	ENSURE( RunAngularSpringTwist( e_springMotor, 170.0f, true ) == 0 );
+	ENSURE( RunAngularSpringTwist( e_springWeld, 170.0f, true ) == 0 );
+	ENSURE( RunAngularSpringTwist( e_springMotor, 90.0f, true ) == 0 );
+	ENSURE( RunAngularSpringTwist( e_springWeld, 90.0f, true ) == 0 );
+	return 0;
+}
+
 int JointTest( void )
 {
 	RUN_SUBTEST( TestParallelJoint );
@@ -792,6 +919,7 @@ int JointTest( void )
 	RUN_SUBTEST( TestWheelJoint );
 	RUN_SUBTEST( TestCreateJointClearsContacts );
 	RUN_SUBTEST( TestNonDynamicJointDisable );
+	RUN_SUBTEST( TestAngularSpringTwist );
 
 	return 0;
 }

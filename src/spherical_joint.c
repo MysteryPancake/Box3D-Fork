@@ -429,38 +429,6 @@ void b3WarmStartSphericalJoint( b3JointSim* base, b3StepContext* context )
 	}
 }
 
-// Spring error in frame A, split into swing (tilt of the frame z-axis) and twist (about the target's z-axis), so the
-// tilt restoring force does not depend on the twist. A single 2 * vec( q ) error scales the tilt by cos( twist / 2 ),
-// which vanishes at 180 degrees of twist.
-// Each part has the magnitude 2 * sin( angle / 2 ), the same as the combined error for a pure tilt or a pure twist.
-static b3Vec3 b3ComputeSphericalSpringError( b3Quat relQ, b3Quat target )
-{
-	b3Vec3 a = b3RotateVector( target, b3Vec3_axisZ );
-	b3Vec3 b = b3RotateVector( relQ, b3Vec3_axisZ );
-
-	// Shortest rotation taking a to b: the tilt. Half angle form, so there is no acos and no singularity except a = -b.
-	float w = 1.0f + b3Dot( a, b );
-	b3Quat swing;
-	if ( w > 1e-6f )
-	{
-		swing = b3NormalizeQuat( ( b3Quat ){ b3Cross( a, b ), w } );
-	}
-	else
-	{
-		// Tilt of 180 degrees: any axis perpendicular to a will do.
-		b3Vec3 axis = b3Normalize( b3Cross( a, ( a.x < 0.9f && a.x > -0.9f ) ? b3Vec3_axisX : b3Vec3_axisY ) );
-		swing = ( b3Quat ){ axis, 0.0f };
-	}
-
-	// What is left after the swing is a rotation about a: the twist.
-	b3Quat r = b3MulQuat( relQ, b3Conjugate( target ) );
-	b3Quat t = b3MulQuat( b3Conjugate( swing ), r );
-	float sign = t.s < 0.0f ? -1.0f : 1.0f;
-	float twist = 2.0f * sign * b3Dot( t.v, a );
-
-	return b3MulAdd( b3MulSV( 2.0f, swing.v ), twist, a );
-}
-
 void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBias )
 {
 	float mA = base->invMassA;
@@ -497,7 +465,7 @@ void b3SolveSphericalJoint( b3JointSim* base, b3StepContext* context, bool useBi
 		if ( joint->enableSpring )
 		{
 			// Rotation constraint error
-			b3Vec3 c = b3RotateVector( quatA, b3ComputeSphericalSpringError( relQ, joint->targetRotation ) );
+			b3Vec3 c = b3RotateVector( quatA, b3AngularSpringError( relQ, joint->targetRotation ) );
 
 			b3Vec3 bias = b3MulSV( joint->springSoftness.biasRate, c );
 			float massScale = joint->springSoftness.massScale;

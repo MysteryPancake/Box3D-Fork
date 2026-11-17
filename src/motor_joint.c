@@ -302,8 +302,8 @@ void b3SolveMotorJoint( b3JointSim* base, b3StepContext* context )
 	if ( joint->maxSpringTorque > 0.0f && joint->angularHertz > 0.0f )
 	{
 		b3Quat targetQuat = b3Quat_identity;
-		b3Vec3 deltaRotation = b3DeltaQuatToRotation( relQ, targetQuat );
-		b3Vec3 c = b3Neg( b3RotateVector( quatA, deltaRotation ) );
+		b3Vec3 error = b3AngularSpringError( relQ, targetQuat );
+		b3Vec3 c = b3RotateVector( quatA, error );
 
 		b3Vec3 bias = b3MulSV( joint->angularSpring.biasRate, c );
 		float massScale = joint->angularSpring.massScale;
