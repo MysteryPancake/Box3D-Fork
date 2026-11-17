@@ -110,6 +110,8 @@ b3DestroyHull(data);
 `maxVertexCount` limits the output complexity; pass the same value as `pointCount`
 to allow the full hull. `b3CreateHull` returns `NULL` on degenerate input (e.g. fewer
 than four non-coplanar points, or nearly-zero volume). Always check before using it.
+A point set only a few times thicker than the builder tolerance is thickened slightly,
+so you get a thin hull instead of a failure.
 
 Box3D also provides helpers to create cylindrical and conical hulls:
 

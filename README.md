@@ -12,6 +12,8 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 - `b3_planeShape` is added at the end of `b3ShapeType`, so existing recorded values keep their meaning.
 - New public functions: `b3ComputePlaneAABB`, `b3OverlapPlane`, `b3RayCastPlane`, `b3ShapeCastPlane`, `b3CollidePlaneAndSphere`, `b3CollidePlaneAndCapsule`, `b3CollidePlaneAndHull`.
 - Planes have no debug draw shape, because they are infinite.
+- The spherical joint's angular spring restores tilt independently of twist about the joint's z-axis. Before, the tilt force fell to zero at 180 degrees of twist and the body settled at a heavy tilt.
+- `b3CreateHull` no longer hangs on a nearly flat point set (a slab a few times thicker than the builder tolerance). It builds a thin hull from a slightly thickened copy of the points instead.
 
 Notes for agents working in this repository are in [AGENTS.md](AGENTS.md).
 

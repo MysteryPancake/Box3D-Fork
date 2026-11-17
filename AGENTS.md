@@ -4,6 +4,51 @@ This is a fork of erincatto/box3d. Everything that differs from upstream `main` 
 where to look. Keep this file and the README's "Changes since upstream main" list in step with any further fork change.
 Describe how the code works now, not its history.
 
+## Spherical joint spring: swing and twist (`src/spherical_joint.c`)
+
+**Problem.** The spring error was `b3DeltaQuatToRotation( relQ, targetRotation )`, about `2 * vec( q )` of the combined
+rotation. With tilt and twist together the tilt part is scaled by `cos( twist / 2 )`, so a body tilted under gravity and
+twisted 180 degrees about its z-axis gets no tilt torque. It settled around 75 to 78 degrees tilt (and could orbit
+with low damping).
+
+**Fix.** `b3ComputeSphericalSpringError( relQ, target )` returns the error in frame A as two parts:
+- Tilt: the shortest rotation from the target's z-axis to the current z-axis, built from `1 + dot( a, b )` and
+  `cross( a, b )` (half angle form, no `acos`). Exactly 180 degrees apart there is no unique axis, so an axis perpendicular
+  to `a` is used.
+- Twist: what remains of `relQ * conj( target )` after removing the swing is a rotation about `a`; its angle is
+  taken the short way round.
+
+Each part has magnitude `2 * sin( angle / 2 )`, the same as the old error for a pure tilt or a pure twist, so existing
+spring behaviour without combined tilt and twist is unchanged. `b3SolveSphericalJoint` rotates the sum to the world
+with `quatA` as before; the rest of the spring (softness, `rotationMass`, impulse) is untouched.
+
+**Not changed.** `b3DeltaQuatToRotation` stays for the motor, weld and prismatic joints, whose angular springs hold
+the whole orientation, twist included. Separate tilt and twist stiffness is not exposed.
+
+**Tests.** The Houdini repo's `tests/core_joints.cpp` ("spherical spring"): a capsule on a sprung spherical joint,
+tilted 70 degrees, twist 0 and 180, must be within 5 degrees of upright after 8 seconds.
+
+## Thin point sets in `b3CreateHull` (`src/hull.c`)
+
+**Problem.** The builder's tolerance scales with float epsilon and the size of the point set. A slab only a few times
+`minRadius` thick (about 1.5e-5 of its size; failures seen up to about 1.5e-4 for a 10 unit slab) makes `MergeCoplanar`
+judge the top and bottom faces coplanar. They share their whole boundary, so the first loop in
+`b3HullBuilder_ConnectFaces` (`edgePrev->twin->face == twin->face`) never reaches a third face and never ends.
+
+**Detection.** `ConnectFaces` returns `bool`. Before changing anything it counts the shared run of edges; reaching the
+smaller face's edge count means the faces share everything, so it sets `b3HullBuilder::degenerate` and returns false.
+`MergeConcave` and `MergeCoplanar` treat false as "no merge", `MergeFaces` returns, and `b3HullBuilder_Construct` stops
+after the vertex that set the flag and returns false. A legitimate merge is never refused: the shared run is always
+shorter than both faces' edge counts.
+
+**Recovery.** `b3CreateHull` wraps `b3CreateHullInternal(..., bool* degenerate)`. If the build failed with `degenerate`
+set, it retries once on `b3ThickenPoints`: every point is copied to both sides of the thinnest principal axis (Jacobi
+eigen-solve of the covariance) by 2e-4 of the size, far above the failing band. The result is a thin but valid hull; if
+the retry fails too, `NULL`. Nothing is thickened when the first build works, so existing hulls are unchanged.
+
+**Not done.** Slabs that fail some other way (for example a needle thin on two axes) are not thickened further. No test
+in this repo covers it; the Houdini repo's `tests/physics_shapes.cpp` is the place for one.
+
 ## Plane shape (`b3_planeShape`)
 
 An infinite static half-space for ground collision. Used by the Houdini plugin (Ground Plane DOP), which can have many.

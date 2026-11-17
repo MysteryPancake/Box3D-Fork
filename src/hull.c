@@ -16,6 +16,7 @@
 #include "box3d/math_functions.h"
 
 #include <float.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -155,6 +156,10 @@ typedef struct b3HullBuilder
 	int finalVertexCount;
 	int finalHalfEdgeCount;
 	int finalFaceCount;
+
+	// Set when a merge would have joined two faces that share their whole boundary. The hull is
+	// too thin for the tolerance and construction stops.
+	bool degenerate;
 } b3HullBuilder;
 
 static inline void b3QHList_Init( b3QHListNode* head )
@@ -1039,7 +1044,10 @@ static void b3HullBuilder_AbsorbFaces( b3HullBuilder* b, b3QHFace* face )
 	}
 }
 
-static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
+// Returns false, changing nothing, if the two faces share their whole boundary. Walking their shared
+// edges would then never end: this happens when the point set is only a few times thicker than the
+// builder tolerance and the top and bottom faces are judged coplanar.
+static bool b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 {
 	b3QHFace* face = edge->face;
 
@@ -1050,8 +1058,20 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 	b3QHHalfEdge* twinPrev = twin->prev;
 	b3QHHalfEdge* twinNext = twin->next;
 
+	// A shared run is shorter than either face's edge count unless the faces share everything.
+	int faceEdgeCount = b3VertexCountOfFace( face );
+	int twinEdgeCount = b3VertexCountOfFace( twin->face );
+	int maxRun = faceEdgeCount < twinEdgeCount ? faceEdgeCount : twinEdgeCount;
+
+	int run = 0;
 	while ( edgePrev->twin->face == twin->face )
 	{
+		if ( ++run >= maxRun )
+		{
+			b->degenerate = true;
+			return false;
+		}
+
 		B3_ASSERT( edgePrev->twin == twinNext );
 		B3_ASSERT( twinNext->twin == edgePrev );
 
@@ -1062,6 +1082,12 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 
 	while ( edgeNext->twin->face == twin->face )
 	{
+		if ( ++run >= maxRun )
+		{
+			b->degenerate = true;
+			return false;
+		}
+
 		B3_ASSERT( edgeNext->twin == twinPrev );
 		B3_ASSERT( twinPrev->twin == edgeNext );
 
@@ -1099,6 +1125,7 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 #endif
 
 	b3HullBuilder_AbsorbFaces( b, face );
+	return true;
 }
 
 static bool b3HullBuilder_MergeConcave( b3HullBuilder* b, b3QHFace* face )
@@ -1111,7 +1138,10 @@ static bool b3HullBuilder_MergeConcave( b3HullBuilder* b, b3QHFace* face )
 
 		if ( b3IsEdgeConcave( edge, b->minRadius ) || b3IsEdgeConcave( twin, b->minRadius ) )
 		{
-			b3HullBuilder_ConnectFaces( b, edge );
+			if ( b3HullBuilder_ConnectFaces( b, edge ) == false )
+			{
+				return false;
+			}
 			return true;
 		}
 
@@ -1132,7 +1162,10 @@ static bool b3HullBuilder_MergeCoplanar( b3HullBuilder* b, b3QHFace* face )
 
 		if ( !b3IsEdgeConvex( edge, b->minRadius ) || !b3IsEdgeConvex( twin, b->minRadius ) )
 		{
-			b3HullBuilder_ConnectFaces( b, edge );
+			if ( b3HullBuilder_ConnectFaces( b, edge ) == false )
+			{
+				return false;
+			}
 			return true;
 		}
 
@@ -1171,7 +1204,10 @@ static void b3HullBuilder_MergeFaces( b3HullBuilder* b )
 			while ( edge != face->edge );
 
 			B3_ASSERT( bestEdge != NULL );
-			b3HullBuilder_ConnectFaces( b, bestEdge );
+			if ( b3HullBuilder_ConnectFaces( b, bestEdge ) == false )
+			{
+				return;
+			}
 		}
 	}
 
@@ -1459,6 +1495,12 @@ static bool b3HullBuilder_Construct( b3HullBuilder* b, const b3Vec3* points, int
 	while ( vertex && budget > 0 )
 	{
 		b3HullBuilder_AddVertexToHull( b, vertex );
+		if ( b->degenerate )
+		{
+			// Too thin for the tolerance. The caller may retry with a thickened point set.
+			return false;
+		}
+
 		vertex = b3HullBuilder_NextConflictVertex( b );
 		budget -= 1;
 	}
@@ -2134,8 +2176,9 @@ static bool b3UpdateHullBulkProperties( b3HullData* hull )
 	return true;
 }
 
-b3HullData* b3CreateHull( const b3Vec3* points, int pointCount, int maxVertexCount )
+static b3HullData* b3CreateHullInternal( const b3Vec3* points, int pointCount, int maxVertexCount, bool* degenerate )
 {
+	*degenerate = false;
 	if ( pointCount < 4 )
 	{
 		return NULL;
@@ -2156,6 +2199,7 @@ b3HullData* b3CreateHull( const b3Vec3* points, int pointCount, int maxVertexCou
 	bool ok = b3HullBuilder_Construct( &builder, points, pointCount, clampedMaxCount, origin, shiftedPoints );
 	if ( ok == false )
 	{
+		*degenerate = builder.degenerate;
 		b3Free( work, sizes.totalBytes );
 		return NULL;
 	}
@@ -2361,6 +2405,134 @@ b3HullData* b3CreateHull( const b3Vec3* points, int pointCount, int maxVertexCou
 	hull->hash = 0;
 	hull->hash = b3Hash64NonZero( (uint8_t*)hull, hull->byteCount );
 
+	return hull;
+}
+
+// Thickens a point set that is too thin for the builder tolerance: every point is copied to both
+// sides of the thinnest principal axis. The result has 2 * pointCount points; the caller frees it.
+static b3Vec3* b3ThickenPoints( const b3Vec3* points, int pointCount )
+{
+	double c[3] = { 0.0, 0.0, 0.0 };
+	double lo[3] = { points[0].x, points[0].y, points[0].z };
+	double hi[3] = { lo[0], lo[1], lo[2] };
+	for ( int i = 0; i < pointCount; ++i )
+	{
+		double p[3] = { points[i].x, points[i].y, points[i].z };
+		for ( int k = 0; k < 3; ++k )
+		{
+			c[k] += p[k];
+			lo[k] = p[k] < lo[k] ? p[k] : lo[k];
+			hi[k] = p[k] > hi[k] ? p[k] : hi[k];
+		}
+	}
+	for ( int k = 0; k < 3; ++k )
+	{
+		c[k] /= pointCount;
+	}
+
+	double size = 0.0;
+	for ( int k = 0; k < 3; ++k )
+	{
+		size = hi[k] - lo[k] > size ? hi[k] - lo[k] : size;
+	}
+
+	double a[3][3] = { { 0 } };
+	for ( int i = 0; i < pointCount; ++i )
+	{
+		double d[3] = { points[i].x - c[0], points[i].y - c[1], points[i].z - c[2] };
+		for ( int r = 0; r < 3; ++r )
+		{
+			for ( int s = 0; s < 3; ++s )
+			{
+				a[r][s] += d[r] * d[s];
+			}
+		}
+	}
+
+	// Jacobi eigenvectors of the covariance, columns of v.
+	double v[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	for ( int sweep = 0; sweep < 32; ++sweep )
+	{
+		double off = fabs( a[0][1] ) + fabs( a[0][2] ) + fabs( a[1][2] );
+		double diag = fabs( a[0][0] ) + fabs( a[1][1] ) + fabs( a[2][2] );
+		if ( off <= 1e-14 * diag )
+		{
+			break;
+		}
+
+		for ( int p = 0; p < 2; ++p )
+		{
+			for ( int q = p + 1; q < 3; ++q )
+			{
+				if ( a[p][q] == 0.0 )
+				{
+					continue;
+				}
+
+				double theta = ( a[q][q] - a[p][p] ) / ( 2.0 * a[p][q] );
+				double t = ( theta >= 0.0 ? 1.0 : -1.0 ) / ( fabs( theta ) + sqrt( theta * theta + 1.0 ) );
+				double cs = 1.0 / sqrt( t * t + 1.0 );
+				double sn = t * cs;
+				for ( int k = 0; k < 3; ++k )
+				{
+					double kp = a[k][p], kq = a[k][q];
+					a[k][p] = cs * kp - sn * kq;
+					a[k][q] = sn * kp + cs * kq;
+				}
+				for ( int k = 0; k < 3; ++k )
+				{
+					double pk = a[p][k], qk = a[q][k];
+					a[p][k] = cs * pk - sn * qk;
+					a[q][k] = sn * pk + cs * qk;
+				}
+				for ( int k = 0; k < 3; ++k )
+				{
+					double kp = v[k][p], kq = v[k][q];
+					v[k][p] = cs * kp - sn * kq;
+					v[k][q] = sn * kp + cs * kq;
+				}
+			}
+		}
+	}
+
+	int thin = 0;
+	for ( int k = 1; k < 3; ++k )
+	{
+		if ( a[k][k] < a[thin][thin] )
+		{
+			thin = k;
+		}
+	}
+
+	// 2e-4 of the size on each side is far above the failing band (about 1.5e-5 of the size).
+	double half = 2e-4 * size;
+	double axis[3] = { v[0][thin] * half, v[1][thin] * half, v[2][thin] * half };
+
+	b3Vec3* out = b3Alloc( 2 * pointCount * (int)sizeof( b3Vec3 ) );
+	for ( int i = 0; i < pointCount; ++i )
+	{
+		out[2 * i] = ( b3Vec3 ){ (float)( points[i].x + axis[0] ), (float)( points[i].y + axis[1] ), (float)( points[i].z + axis[2] ) };
+		out[2 * i + 1] =
+			( b3Vec3 ){ (float)( points[i].x - axis[0] ), (float)( points[i].y - axis[1] ), (float)( points[i].z - axis[2] ) };
+	}
+	return out;
+}
+
+b3HullData* b3CreateHull( const b3Vec3* points, int pointCount, int maxVertexCount )
+{
+	bool degenerate = false;
+	b3HullData* hull = b3CreateHullInternal( points, pointCount, maxVertexCount, &degenerate );
+	if ( hull != NULL || degenerate == false )
+	{
+		return hull;
+	}
+
+	// The point set is only a few times thicker than the builder tolerance, which would make it loop.
+	// Build a thin hull from a thickened copy instead.
+	b3Vec3* thick = b3ThickenPoints( points, pointCount );
+	bool stillDegenerate = false;
+	hull = b3CreateHullInternal( thick, 2 * pointCount, maxVertexCount, &stillDegenerate );
+	b3Free( thick, 2 * pointCount * (int)sizeof( b3Vec3 ) );
 	return hull;
 }
 
