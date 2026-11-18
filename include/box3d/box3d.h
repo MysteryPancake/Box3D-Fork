@@ -75,6 +75,11 @@ B3_API b3SensorEvents b3World_GetSensorEvents( b3WorldId worldId );
 /// reference to this data.
 B3_API b3ContactEvents b3World_GetContactEvents( b3WorldId worldId );
 
+/// Report an impulse event for every manifold point in the awake set that carries normal impulse, so an application
+/// that reads every contact's impulse each step need not walk the bodies' contact lists. Off by default. The
+/// events are available after each step, with the other contact events.
+B3_API void b3World_EnableContactImpulseEvents( b3WorldId worldId, bool flag );
+
 /// Get the joint events for the current time step. The event data is transient. Do not store a
 /// reference to this data.
 B3_API b3JointEvents b3World_GetJointEvents( b3WorldId worldId );

@@ -180,6 +180,8 @@ static void b3CreateWorkerContexts( b3World* world )
 		world->taskContexts.data[i].contactStateBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].hitEventBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].hasHitEvents = false;
+		world->taskContexts.data[i].impulseEventBitSet = b3CreateBitSet( 1024 );
+		world->taskContexts.data[i].hasImpulseEvents = false;
 		world->taskContexts.data[i].jointStateBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].awakeIslandBitSet = b3CreateBitSet( 256 );
 		world->taskContexts.data[i].splitIslandId = B3_NULL_INDEX;
@@ -197,6 +199,7 @@ static void b3DestroyWorkerContexts( b3World* world )
 		b3Array_Destroy( world->taskContexts.data[i].pairKeys );
 		b3DestroyBitSet( &world->taskContexts.data[i].contactStateBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].hitEventBitSet );
+		b3DestroyBitSet( &world->taskContexts.data[i].impulseEventBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].jointStateBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].awakeIslandBitSet );
 
@@ -319,6 +322,8 @@ b3WorldId b3CreateWorld( const b3WorldDef* def )
 	b3Array_Reserve( world->contactEndEvents[0], 4 );
 	b3Array_Reserve( world->contactEndEvents[1], 4 );
 	b3Array_Reserve( world->contactHitEvents, 4 );
+	b3Array_Reserve( world->contactImpulseEvents, 4 );
+	world->enableContactImpulseEvents = false;
 	b3Array_Reserve( world->jointEvents, 4 );
 	world->endEventArrayIndex = 0;
 
@@ -442,6 +447,7 @@ void b3DestroyWorld( b3WorldId worldId )
 	b3Array_Destroy( world->contactEndEvents[0] );
 	b3Array_Destroy( world->contactEndEvents[1] );
 	b3Array_Destroy( world->contactHitEvents );
+	b3Array_Destroy( world->contactImpulseEvents );
 	b3Array_Destroy( world->jointEvents );
 
 	int sensorCount = world->sensors.count;
@@ -1064,6 +1070,7 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 	b3Array_Clear( world->sensorBeginEvents );
 	b3Array_Clear( world->contactBeginEvents );
 	b3Array_Clear( world->contactHitEvents );
+	b3Array_Clear( world->contactImpulseEvents );
 	b3Array_Clear( world->jointEvents );
 
 	world->profile = (b3Profile){ 0 };
@@ -1812,9 +1819,22 @@ b3ContactEvents b3World_GetContactEvents( b3WorldId worldId )
 		.beginCount = beginCount,
 		.endCount = endCount,
 		.hitCount = hitCount,
+		.impulseEvents = world->contactImpulseEvents.data,
+		.impulseCount = world->contactImpulseEvents.count,
 	};
 
 	return events;
+}
+
+void b3World_EnableContactImpulseEvents( b3WorldId worldId, bool flag )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return;
+	}
+
+	world->enableContactImpulseEvents = flag;
 }
 
 b3JointEvents b3World_GetJointEvents( b3WorldId worldId )
@@ -2551,6 +2571,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 		taskContextBytes += b3GetBitSetBytes( &taskContext->contactStateBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->jointStateBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->hitEventBitSet );
+		taskContextBytes += b3GetBitSetBytes( &taskContext->impulseEventBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->awakeIslandBitSet );
 	}
 
@@ -2579,6 +2600,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	eventBytes += b3Array_ByteCount( world->contactEndEvents[0] );
 	eventBytes += b3Array_ByteCount( world->contactEndEvents[1] );
 	eventBytes += b3Array_ByteCount( world->contactHitEvents );
+	eventBytes += b3Array_ByteCount( world->contactImpulseEvents );
 	eventBytes += b3Array_ByteCount( world->jointEvents );
 	total += eventBytes;
 

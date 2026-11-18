@@ -170,6 +170,20 @@ the body state with the transform; the continuous collision pass (`solver.c`) up
 it corrects (the angular velocity is not changed there), and `b3TrySleepIsland` (`solver_set.c`) sets both to zero for a
 body that fell asleep, as `b3Body_GetLinearVelocity` returns for a sleeping body. Nothing else changes.
 
+## Contact impulse events (`include/box3d/types.h`, `src/solver.c`, `src/contact_solver*.{c,inl}`, `src/physics_world.c`)
+
+`b3World_EnableContactImpulseEvents( worldId, true )` makes `b3World_GetContactEvents` fill `impulseEvents` /
+`impulseCount`: one `b3ContactImpulseEvent` per manifold point with `totalNormalImpulse > 0` of every contact in the
+awake set, valid until the next step. An event has both shape and body ids, both bodies' user data, the point (A's
+center plus `anchorA`, world space), the normal (A to B), the impulse and `awakeA` / `awakeB` (the body was in the awake
+set when the event was made, which is before islands fall asleep, so a body that sleeps this step is still awake
+here; a static body never is).
+
+It follows the hit event path. The two store-impulse functions (`b3StoreImpulses` for overflow contacts, `b3StoreImpulsesW`
+for the wide ones) set a bit in a per-worker `impulseEventBitSet` for each contact that carries impulse (only while the
+world flag is on), `b3SolverStep` clears the bit sets with the hit ones, ORs the workers' sets together after the hit
+events and walks the bits to build the events. Off, the only cost is the flag test in the store loops.
+
 ## Graph color count (`include/box3d/constants.h`)
 
 `B3_GRAPH_COLOR_COUNT` is 32 (was 24), so dense joint networks overflow less. The overflow color is still the last one,

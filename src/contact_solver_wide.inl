@@ -1479,6 +1479,9 @@ B3_FORCE_INLINE void b3StoreImpulsesW( b3SolverBlock block, b3StepContext* conte
 	b3BitSet* hitEventBitSet = &taskContext->hitEventBitSet;
 	bool hasHitEvents = taskContext->hasHitEvents;
 	float negHitThreshold = -world->hitEventThreshold;
+	b3BitSet* impulseEventBitSet = &taskContext->impulseEventBitSet;
+	bool hasImpulseEvents = taskContext->hasImpulseEvents;
+	bool impulseEvents = world->enableContactImpulseEvents;
 
 	b3ContactConstraintWide* c = b3GetConstraintW( base, manifoldStarts, block.startIndex, fixedManifoldCount );
 	for ( int i = 0; i < block.count; ++i )
@@ -1551,6 +1554,29 @@ B3_FORCE_INLINE void b3StoreImpulsesW( b3SolverBlock block, b3StepContext* conte
 				}
 			}
 
+			if ( impulseEvents )
+			{
+				bool carried = false;
+				for ( int manifoldIndex = 0; manifoldIndex < laneManifoldCount && carried == false; ++manifoldIndex )
+				{
+					const b3Manifold* m = contact->manifolds + manifoldIndex;
+					for ( int pointIndex = 0; pointIndex < m->pointCount; ++pointIndex )
+					{
+						if ( m->points[pointIndex].totalNormalImpulse > 0.0f )
+						{
+							carried = true;
+							break;
+						}
+					}
+				}
+
+				if ( carried )
+				{
+					b3SetBit( impulseEventBitSet, contact->contactId );
+					hasImpulseEvents = true;
+				}
+			}
+
 			if ( ( contact->flags & b3_simEnableHitEvent ) != 0 )
 			{
 				bool flagged = false;
@@ -1578,6 +1604,7 @@ B3_FORCE_INLINE void b3StoreImpulsesW( b3SolverBlock block, b3StepContext* conte
 	}
 
 	taskContext->hasHitEvents = hasHitEvents;
+	taskContext->hasImpulseEvents = hasImpulseEvents;
 }
 
 // These wrappers allow the implementation be shared between convex and mesh contacts.

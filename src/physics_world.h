@@ -39,6 +39,7 @@ b3DeclareArray( b3Sensor );
 b3DeclareArray( b3SensorTaskContext );
 b3DeclareArray( b3SensorHit );
 b3DeclareArray( b3BodyMoveEvent );
+b3DeclareArray( b3ContactImpulseEvent );
 b3DeclareArray( b3SensorBeginTouchEvent );
 b3DeclareArray( b3ContactBeginTouchEvent );
 b3DeclareArray( b3SensorEndTouchEvent );
@@ -91,6 +92,11 @@ typedef struct b3TaskContext
 
 	// Fast-path flag: true when this worker set at least one bit in hitEventBitSet this step.
 	bool hasHitEvents;
+
+	// These bits align with the contact id capacity and mark contacts that carry normal impulse
+	// (only set while contact impulse events are enabled).
+	b3BitSet impulseEventBitSet;
+	bool hasImpulseEvents;
 
 	// Used to put islands to sleep
 	b3BitSet awakeIslandBitSet;
@@ -211,6 +217,7 @@ typedef struct b3World
 	int endEventArrayIndex;
 
 	b3Array( b3ContactHitEvent ) contactHitEvents;
+	b3Array( b3ContactImpulseEvent ) contactImpulseEvents;
 	b3Array( b3JointEvent ) jointEvents;
 
 	// Used to track debug draw
@@ -296,6 +303,7 @@ typedef struct b3World
 	// not a real mutex. This should have minimal performance impact.
 	bool locked;
 	bool enableWarmStarting;
+	bool enableContactImpulseEvents;
 	bool enableContinuous;
 	bool enableSpeculative;
 	bool inUse;

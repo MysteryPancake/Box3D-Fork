@@ -829,6 +829,9 @@ void b3StoreImpulses_Mesh( b3SolverBlock block, b3StepContext* context, int work
 	b3BitSet* hitEventBitSet = &taskContext->hitEventBitSet;
 	bool hasHitEvents = taskContext->hasHitEvents;
 	float negHitThreshold = -world->hitEventThreshold;
+	b3BitSet* impulseEventBitSet = &taskContext->impulseEventBitSet;
+	bool hasImpulseEvents = taskContext->hasImpulseEvents;
+	bool impulseEvents = world->enableContactImpulseEvents;
 
 	int index = block.startIndex;
 	int endIndex = block.startIndex + block.count;
@@ -888,6 +891,12 @@ void b3StoreImpulses_Mesh( b3SolverBlock block, b3StepContext* context, int work
 					mp->normalImpulse = cp->normalImpulse;
 					mp->totalNormalImpulse = cp->totalNormalImpulse;
 
+					if ( impulseEvents && mp->totalNormalImpulse > 0.0f )
+					{
+						b3SetBit( impulseEventBitSet, contact->contactId );
+						hasImpulseEvents = true;
+					}
+
 					if ( checkHitEvents && flagged == false && mp->normalVelocity < negHitThreshold &&
 						 mp->totalNormalImpulse > 0.0f )
 					{
@@ -904,6 +913,7 @@ void b3StoreImpulses_Mesh( b3SolverBlock block, b3StepContext* context, int work
 	}
 
 	taskContext->hasHitEvents = hasHitEvents;
+	taskContext->hasImpulseEvents = hasImpulseEvents;
 }
 
 void b3PrepareContacts_Overflow( b3StepContext* context )

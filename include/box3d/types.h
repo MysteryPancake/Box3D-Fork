@@ -1281,6 +1281,44 @@ typedef struct b3ContactHitEvent
 
 } b3ContactHitEvent;
 
+/// One manifold point that carried normal impulse in the time step, for a contact in the awake set.
+/// Only reported while b3World_EnableContactImpulseEvents is on.
+typedef struct b3ContactImpulseEvent
+{
+	/// Id of the first shape
+	b3ShapeId shapeIdA;
+
+	/// Id of the second shape
+	b3ShapeId shapeIdB;
+
+	/// Id of the body of shape A
+	b3BodyId bodyIdA;
+
+	/// Id of the body of shape B
+	b3BodyId bodyIdB;
+
+	/// User data of the body of shape A
+	void* userDataA;
+
+	/// User data of the body of shape B
+	void* userDataB;
+
+	/// The point on shape A's surface, in world space
+	b3Pos point;
+
+	/// Normal vector pointing from shape A to shape B
+	b3Vec3 normal;
+
+	/// The normal impulse the point carried in the step, summed over the solver sub-steps
+	float impulse;
+
+	/// Was the body of shape A in the awake set when the event was made? A static body never is.
+	bool awakeA;
+
+	/// Was the body of shape B in the awake set when the event was made? A static body never is.
+	bool awakeB;
+} b3ContactImpulseEvent;
+
 /// Contact events are buffered in the world and are available
 ///	as event arrays after the time step is complete.
 ///	Note: these may become invalid if bodies and/or shapes are destroyed
@@ -1303,6 +1341,12 @@ typedef struct b3ContactEvents
 
 	/// Number of hit events
 	int hitCount;
+
+	/// Array of impulse events, empty unless b3World_EnableContactImpulseEvents is on
+	b3ContactImpulseEvent* impulseEvents;
+
+	/// Number of impulse events
+	int impulseCount;
 } b3ContactEvents;
 
 /// Body move events triggered when a body moves.

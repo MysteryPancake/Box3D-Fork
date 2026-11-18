@@ -2143,6 +2143,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 			b3SetBitCountAndClear( &taskContext->jointStateBitSet, jointIdCapacity );
 			b3SetBitCountAndClear( &taskContext->hitEventBitSet, contactIdCapacity );
 			taskContext->hasHitEvents = false;
+			b3SetBitCountAndClear( &taskContext->impulseEventBitSet, contactIdCapacity );
+			taskContext->hasImpulseEvents = false;
 
 			workerContext[i].context = stepContext;
 			workerContext[i].workerIndex = i;
@@ -2405,6 +2407,87 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 
 		world->profile.hitEvents = b3GetMilliseconds( hitTicks );
 		b3TracyCZoneEnd( hit_events );
+	}
+
+	// Report impulse events: one per manifold point that carried normal impulse
+	if ( world->enableContactImpulseEvents )
+	{
+		B3_ASSERT( world->contactImpulseEvents.count == 0 );
+
+		bool anyImpulseEvents = false;
+		for ( int i = 0; i < world->workerCount; ++i )
+		{
+			if ( world->taskContexts.data[i].hasImpulseEvents )
+			{
+				anyImpulseEvents = true;
+				break;
+			}
+		}
+
+		if ( anyImpulseEvents )
+		{
+			b3BitSet* impulseEventBitSet = &world->taskContexts.data[0].impulseEventBitSet;
+			for ( int i = 1; i < world->workerCount; ++i )
+			{
+				if ( world->taskContexts.data[i].hasImpulseEvents )
+				{
+					b3InPlaceUnion( impulseEventBitSet, &world->taskContexts.data[i].impulseEventBitSet );
+				}
+			}
+
+			b3Contact* contactArray = world->contacts.data;
+			uint16_t worldId = world->worldId;
+
+			uint32_t wordCount = impulseEventBitSet->blockCount;
+			uint64_t* bits = impulseEventBitSet->bits;
+			for ( uint32_t k = 0; k < wordCount; ++k )
+			{
+				uint64_t word = bits[k];
+				while ( word != 0 )
+				{
+					uint32_t ctz = b3CTZ64( word );
+					int contactId = (int)( 64 * k + ctz );
+
+					b3Contact* contact = contactArray + contactId;
+					B3_ASSERT( contact->setIndex == b3_awakeSet && contact->colorIndex != B3_NULL_INDEX );
+
+					b3Shape* shapeA = b3Array_Get( world->shapes, contact->shapeIdA );
+					b3Shape* shapeB = b3Array_Get( world->shapes, contact->shapeIdB );
+					b3Body* bodyA = b3Array_Get( world->bodies, shapeA->bodyId );
+					b3Body* bodyB = b3Array_Get( world->bodies, shapeB->bodyId );
+					b3BodySim* simA = b3GetBodySim( world, bodyA );
+
+					b3ContactImpulseEvent event = { 0 };
+					event.shapeIdA = (b3ShapeId){ shapeA->id + 1, worldId, shapeA->generation };
+					event.shapeIdB = (b3ShapeId){ shapeB->id + 1, worldId, shapeB->generation };
+					event.bodyIdA = (b3BodyId){ shapeA->bodyId + 1, worldId, bodyA->generation };
+					event.bodyIdB = (b3BodyId){ shapeB->bodyId + 1, worldId, bodyB->generation };
+					event.userDataA = bodyA->userData;
+					event.userDataB = bodyB->userData;
+					event.awakeA = bodyA->setIndex == b3_awakeSet;
+					event.awakeB = bodyB->setIndex == b3_awakeSet;
+
+					for ( int i = 0; i < contact->manifoldCount; ++i )
+					{
+						b3Manifold* manifold = contact->manifolds + i;
+						for ( int p = 0; p < manifold->pointCount; ++p )
+						{
+							b3ManifoldPoint* mp = manifold->points + p;
+							if ( mp->totalNormalImpulse > 0.0f )
+							{
+								event.point = b3OffsetPos( simA->center, mp->anchorA );
+								event.normal = manifold->normal;
+								event.impulse = mp->totalNormalImpulse;
+								b3Array_Push( world->contactImpulseEvents, event );
+							}
+						}
+					}
+
+					// Clear the smallest set bit
+					word = word & ( word - 1 );
+				}
+			}
+		}
 	}
 
 	{
