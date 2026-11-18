@@ -162,6 +162,14 @@ the shorter joint list for another joint joining the same two bodies, so two joi
 is saved and restored with the world snapshot next to `pairSet`. Pair creation only reads it, and it is only written
 outside the step.
 
+## Velocities in move events (`include/box3d/types.h`, `src/solver.c`, `src/solver_set.c`)
+
+`b3BodyMoveEvent` has `linearVelocity` and `angularVelocity`, the body's velocities at the end of the step, so an
+application that copies every moved body's state needs no per-body getter calls. `b3FinalizeBodiesTask` fills them from
+the body state with the transform; the continuous collision pass (`solver.c`) updates the linear velocity of a fast body
+it corrects (the angular velocity is not changed there), and `b3TrySleepIsland` (`solver_set.c`) sets both to zero for a
+body that fell asleep, as `b3Body_GetLinearVelocity` returns for a sleeping body. Nothing else changes.
+
 ## Graph color count (`include/box3d/constants.h`)
 
 `B3_GRAPH_COLOR_COUNT` is 32 (was 24), so dense joint networks overflow less. The overflow color is still the last one,

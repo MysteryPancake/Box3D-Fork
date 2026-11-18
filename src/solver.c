@@ -740,6 +740,7 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 		// The move event was written before CCD, so correct it with the impact pose
 		b3BodyMoveEvent* event = b3Array_Get( world->bodyMoveEvents, bodySimIndex );
 		event->transform = fastBodySim->transform;
+		event->linearVelocity = fastBodyState->linearVelocity;
 
 		// Prepare AABBs for broad-phase.
 		// Even though a body is fast, it may not move much. So the AABB may not need enlargement.
@@ -901,6 +902,8 @@ static void b3FinalizeBodiesTask( int startIndex, int endIndex, int workerIndex,
 
 		moveEvents[simIndex].userData = body->userData;
 		moveEvents[simIndex].transform = sim->transform;
+		moveEvents[simIndex].linearVelocity = v;
+		moveEvents[simIndex].angularVelocity = w;
 		moveEvents[simIndex].bodyId = (b3BodyId){ sim->bodyId + 1, worldId, body->generation };
 		moveEvents[simIndex].fellAsleep = false;
 

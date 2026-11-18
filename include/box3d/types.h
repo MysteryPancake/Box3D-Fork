@@ -1323,6 +1323,12 @@ typedef struct b3BodyMoveEvent
 	/// The body transform.
 	b3WorldTransform transform;
 
+	/// The body linear velocity at the end of the time step. Zero if the body fell asleep.
+	b3Vec3 linearVelocity;
+
+	/// The body angular velocity at the end of the time step. Zero if the body fell asleep.
+	b3Vec3 angularVelocity;
+
 	/// The body id.
 	b3BodyId bodyId;
 

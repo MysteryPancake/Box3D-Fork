@@ -16,6 +16,7 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 - `b3CreateHull` no longer hangs on a nearly flat point set (a slab a few times thicker than the builder tolerance). It builds a thin hull from a slightly thickened copy of the points instead.
 - Weld joints are solved with SIMD, several joints per lane. A graph color that holds only weld joints is solved from a compact per-step array.
 - Bodies joined by a joint with `collideConnected` false are looked up in a hash set when the broad phase makes pairs, instead of walking the body's joint list.
+- `b3BodyMoveEvent` carries the body's linear and angular velocity at the end of the step (zero for a body that fell asleep), so the application need not call `b3Body_GetLinearVelocity` and `b3Body_GetAngularVelocity` for every moved body.
 - `B3_GRAPH_COLOR_COUNT` is raised from 24 to 32 so dense joint networks overflow less.
 
 Notes for agents working in this repository are in [CLAUDE.md](CLAUDE.md).

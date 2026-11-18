@@ -231,6 +231,8 @@ void b3TrySleepIsland( b3World* world, int islandId )
 				B3_ASSERT( moveEvent->bodyId.index1 - 1 == bodyId );
 				B3_ASSERT( moveEvent->bodyId.generation == body->generation );
 				moveEvent->fellAsleep = true;
+				moveEvent->linearVelocity = b3Vec3_zero;
+				moveEvent->angularVelocity = b3Vec3_zero;
 				body->bodyMoveIndex = B3_NULL_INDEX;
 			}
 
