@@ -4,14 +4,14 @@ This is a fork of erincatto/box3d. Everything that differs from upstream `main` 
 where to look. Keep this file and the README's "Changes since upstream main" list in step with any further fork change.
 Describe how the code works now, not its history.
 
-## Spherical joint spring: swing and twist (`src/spherical_joint.c`)
+## Angular spring error: swing and twist (`src/math_internal.h`)
 
 **Problem.** The spring error was `b3DeltaQuatToRotation( relQ, targetRotation )`, about `2 * vec( q )` of the combined
 rotation. With tilt and twist together the tilt part is scaled by `cos( twist / 2 )`, so a body tilted under gravity and
 twisted 180 degrees about its z-axis gets no tilt torque. It settled around 75 to 78 degrees tilt (and could orbit
 with low damping).
 
-**Fix.** `b3ComputeSphericalSpringError( relQ, target )` returns the error in frame A as two parts:
+**Fix.** `b3AngularSpringError( relQ, target )` returns the error in frame A as two parts:
 - Tilt: the shortest rotation from the target's z-axis to the current z-axis, built from `1 + dot( a, b )` and
   `cross( a, b )` (half angle form, no `acos`). Exactly 180 degrees apart there is no unique axis, so an axis perpendicular
   to `a` is used.
@@ -19,14 +19,17 @@ with low damping).
   taken the short way round.
 
 Each part has magnitude `2 * sin( angle / 2 )`, the same as the old error for a pure tilt or a pure twist, so existing
-spring behaviour without combined tilt and twist is unchanged. `b3SolveSphericalJoint` rotates the sum to the world
-with `quatA` as before; the rest of the spring (softness, `rotationMass`, impulse) is untouched.
+spring behaviour without combined tilt and twist is unchanged. The spherical joint's spring (`spherical_joint.c`, rotated
+to the world with `quatA`), the motor joint's angular spring (`motor_joint.c`) and the weld joint's soft angular constraint
+(`weld_joint.c`, and its wide kernel `b3WeldAngularErrorW`) all use it. The rest of each spring (softness, `rotationMass`,
+impulse) is untouched.
 
-**Not changed.** `b3DeltaQuatToRotation` stays for the motor, weld and prismatic joints, whose angular springs hold
-the whole orientation, twist included. Separate tilt and twist stiffness is not exposed.
+**Not changed.** `b3DeltaQuatToRotation` stays for the prismatic joint's rotation lock, a hard lock and not a spring.
+Separate tilt and twist stiffness is not exposed.
 
-**Tests.** The Houdini repo's `tests/core_joints.cpp` ("spherical spring"): a capsule on a sprung spherical joint,
-tilted 70 degrees, twist 0 and 180, must be within 5 degrees of upright after 8 seconds.
+**Tests.** `TestAngularSpringTwist` in `test/test_joint.c`: a capsule tilted 70 degrees must be within 5 degrees of upright
+after 12 s on a sprung spherical joint with twist 90 and 180 free, and on a sprung motor and a weld joint (each over a
+spherical joint that pins the twist) at 90 and 170 degrees. The Houdini repo's `tests/core_joints.cpp` ("spherical spring") covers the spherical case through the wrapper.
 
 ## Thin point sets in `b3CreateHull` (`src/hull.c`)
 
