@@ -67,9 +67,6 @@ static bool b3OverlapSensor( b3Shape* sensorShape, b3Transform sensorTransform, 
 		case b3_sphereShape:
 			return b3OverlapSphere( &sensorShape->sphere, b3Transform_identity, &localProxy );
 
-		case b3_planeShape:
-			return b3OverlapPlane( &sensorShape->plane, b3Transform_identity, &localProxy );
-
 		default:
 			B3_ASSERT( false );
 			return false;

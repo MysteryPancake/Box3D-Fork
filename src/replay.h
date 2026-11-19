@@ -227,7 +227,6 @@ b3BodyId b3RecR_BODYID( b3RecReader* rdr );
 b3ShapeId b3RecR_SHAPEID( b3RecReader* rdr );
 b3JointId b3RecR_JOINTID( b3RecReader* rdr );
 b3Sphere b3RecR_SPHERE( b3RecReader* rdr );
-b3Plane b3RecR_PLANE( b3RecReader* rdr );
 b3Capsule b3RecR_CAPSULE( b3RecReader* rdr );
 uint32_t b3RecR_GEOMID( b3RecReader* rdr );
 b3Filter b3RecR_FILTER( b3RecReader* rdr );

@@ -60,7 +60,6 @@ static float b3ComputeShapeMargin( b3Shape* shape )
 		case b3_meshShape:
 		case b3_heightShape:
 		case b3_compoundShape:
-		case b3_planeShape:
 		{
 			// Static-only shapes: broadphase uses speculative distance for static
 			// proxies, so the per-shape margin is never consumed in practice.
@@ -157,11 +156,6 @@ static b3Shape* b3CreateShapeInternal( b3World* world, b3Body* body, b3WorldTran
 
 		case b3_heightShape:
 			shape->heightField = (b3HeightFieldData*)geometry;
-			break;
-
-		case b3_planeShape:
-			B3_ASSERT( body->type == b3_staticBody );
-			shape->plane = *(b3Plane*)geometry;
 			break;
 
 		default:
@@ -277,10 +271,9 @@ static b3ShapeId b3CreateShape( b3BodyId bodyId, const b3ShapeDef* def, const vo
 	}
 
 	b3Body* body = b3GetBodyFullId( world, bodyId );
-	if ( body->type != b3_staticBody &&
-		 ( shapeType == b3_compoundShape || shapeType == b3_heightShape || shapeType == b3_planeShape ) )
+	if ( body->type != b3_staticBody && ( shapeType == b3_compoundShape || shapeType == b3_heightShape ) )
 	{
-		// Compound, height and plane shapes must be on static bodies.
+		// Compound and height shapes must be on static bodies.
 		return b3_nullShapeId;
 	}
 
@@ -429,26 +422,6 @@ b3ShapeId b3CreateMeshShape( b3BodyId bodyId, const b3ShapeDef* def, const b3Mes
 			uint32_t geometryId = b3RecInternMesh( world->recording, mesh );
 			b3RecArgs_CreateMeshShape createArgs = { bodyId, *def, geometryId, scale };
 			b3RecWriteRet_CreateMeshShape( world->recording, &createArgs, shapeId );
-		}
-	}
-	return shapeId;
-}
-
-b3ShapeId b3CreatePlaneShape( b3BodyId bodyId, const b3ShapeDef* def, const b3Plane* plane )
-{
-	B3_ASSERT( b3IsValidPlane( *plane ) );
-	if ( b3IsValidPlane( *plane ) == false )
-	{
-		return b3_nullShapeId;
-	}
-
-	b3ShapeId shapeId = b3CreateShape( bodyId, def, plane, b3_planeShape, b3Transform_identity, b3Vec3_one, false );
-	if ( shapeId.index1 != 0 )
-	{
-		b3World* world = b3GetUnlockedWorld( bodyId.world0 );
-		if ( world != NULL )
-		{
-			B3_REC_CREATE( world, CreatePlaneShape, shapeId, bodyId, *def, *plane );
 		}
 	}
 	return shapeId;
@@ -650,9 +623,6 @@ b3AABB b3ComputeShapeAABB( const b3Shape* shape, b3Transform transform )
 		case b3_sphereShape:
 			return b3ComputeSphereAABB( &shape->sphere, transform );
 
-		case b3_planeShape:
-			return b3ComputePlaneAABB( &shape->plane, transform );
-
 		default:
 		{
 			B3_ASSERT( false );
@@ -698,10 +668,6 @@ b3AABB b3ComputeSweptShapeAABB( const b3Shape* shape, const b3Sweep* sweep, floa
 
 		case b3_sphereShape:
 			return b3ComputeSweptSphereAABB( &shape->sphere, xf1, xf2 );
-
-		case b3_planeShape:
-			// Static only
-			return b3ComputePlaneAABB( &shape->plane, xf1 );
 
 		default:
 			B3_ASSERT( false );
@@ -910,9 +876,6 @@ b3CastOutput b3RayCastShape( const b3Shape* shape, b3Transform transform, const 
 		case b3_heightShape:
 			output = b3RayCastHeightField( shape->heightField, &localInput );
 			break;
-		case b3_planeShape:
-			output = b3RayCastPlane( &shape->plane, &localInput );
-			break;
 		default:
 			return output;
 	}
@@ -962,10 +925,6 @@ b3CastOutput b3ShapeCastShape( const b3Shape* shape, b3Transform transform, cons
 		case b3_sphereShape:
 			output = b3ShapeCastSphere( &shape->sphere, &localInput );
 			break;
-
-		case b3_planeShape:
-			output = b3ShapeCastPlane( &shape->plane, &localInput );
-			break;
 		default:
 			return output;
 	}
@@ -997,9 +956,6 @@ bool b3OverlapShape( const b3Shape* shape, b3Transform transform, const b3ShapeP
 
 		case b3_sphereShape:
 			return b3OverlapSphere( &shape->sphere, transform, proxy );
-
-		case b3_planeShape:
-			return b3OverlapPlane( &shape->plane, transform, proxy );
 
 		default:
 			B3_ASSERT( false );
@@ -1045,10 +1001,6 @@ int b3CollideMover( b3PlaneResult* planes, int planeCapacity, const b3Shape* sha
 
 		case b3_heightShape:
 			planeCount = b3CollideMoverAndHeightField( planes, planeCapacity, shape->heightField, &localMover );
-			break;
-
-		case b3_planeShape:
-			planeCount = b3CollideMoverAndPlane( planes, &shape->plane, &localMover );
 			break;
 
 		default:
@@ -1613,14 +1565,6 @@ const b3HeightFieldData* b3Shape_GetHeightField( b3ShapeId shapeId )
 	b3Shape* shape = b3GetShape( world, shapeId );
 	B3_ASSERT( shape->type == b3_heightShape );
 	return shape->heightField;
-}
-
-b3Plane b3Shape_GetPlane( b3ShapeId shapeId )
-{
-	b3World* world = b3GetWorld( shapeId.world0 );
-	b3Shape* shape = b3GetShape( world, shapeId );
-	B3_ASSERT( shape->type == b3_planeShape );
-	return shape->plane;
 }
 
 const b3CompoundData* b3Shape_GetCompound( b3ShapeId shapeId )
@@ -2361,13 +2305,6 @@ b3TOIOutput b3ShapeTimeOfImpact( b3Shape* shapeA, b3Shape* shapeB, b3Sweep* swee
 		b3QueryCompound( shapeA->compound, localBounds, b3CompoundTimeOfImpactFcn, &context );
 
 		return context.toiOutput;
-	}
-
-	if ( typeA == b3_planeShape )
-	{
-		// The plane is static
-		b3ShapeProxy proxyB = b3MakeShapeProxy( shapeB );
-		return b3PlaneTimeOfImpact( &shapeA->plane, sweepA, &proxyB, sweepB, maxFraction );
 	}
 
 	if ( typeA == b3_heightShape || typeA == b3_meshShape )

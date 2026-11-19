@@ -59,7 +59,6 @@ set(BOX3D_SOURCE_FILES
 	parallel_joint.c
 	physics_world.c
 	physics_world.h
-	plane.c
 	platform.h
 	pogo_joint.c
 	prismatic_joint.c

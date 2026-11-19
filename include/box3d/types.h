@@ -482,9 +482,6 @@ typedef enum b3ShapeType
 	/// A sphere with an offset
 	b3_sphereShape,
 
-	/// A static half-space. Added after the others so recorded type values stay valid.
-	b3_planeShape,
-
 	/// The number of shape types
 	b3_shapeTypeCount
 } b3ShapeType;

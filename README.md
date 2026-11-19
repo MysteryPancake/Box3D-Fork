@@ -4,14 +4,6 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 
 ### Changes since upstream main
 
-- New static plane shape (`b3_planeShape`): an infinite half-space, solid where `dot( normal, x ) <= offset`. Create it with `b3CreatePlaneShape`, read it with `b3Shape_GetPlane`.
-- Planes are static-only, collide with spheres, capsules and hulls, and several can exist in one world.
-- A plane covers `B3_PLANE_EXTENT` (a quarter of `B3_HUGE`) around its body, not true infinity, because the broad-phase needs a finite box.
-- Ray casts, shape casts, overlap tests, mover collision and continuous collision work with planes.
-- Planes are supported by recording, replay and world snapshots (new recording op `CreatePlaneShape`, 0x47).
-- `b3_planeShape` is added at the end of `b3ShapeType`, so existing recorded values keep their meaning.
-- New public functions: `b3ComputePlaneAABB`, `b3OverlapPlane`, `b3RayCastPlane`, `b3ShapeCastPlane`, `b3CollidePlaneAndSphere`, `b3CollidePlaneAndCapsule`, `b3CollidePlaneAndHull`.
-- Planes have no debug draw shape, because they are infinite.
 - The angular springs of the spherical, motor and weld joints restore tilt independently of twist about the joint's z-axis. Before, the tilt force fell to zero at 180 degrees of twist and the body settled at a heavy tilt.
 - `b3CreateHull` no longer hangs on a nearly flat point set (a slab a few times thicker than the builder tolerance). It builds a thin hull from a slightly thickened copy of the points instead.
 - Weld joints are solved with SIMD, several joints per lane. A graph color that holds only weld joints is solved from a compact per-step array.

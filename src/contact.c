@@ -137,9 +137,6 @@ void b3InitializeContactRegisters( void )
 		b3AddType( b3_heightShape, b3_sphereShape );
 		b3AddType( b3_heightShape, b3_capsuleShape );
 		b3AddType( b3_heightShape, b3_hullShape );
-		b3AddType( b3_planeShape, b3_sphereShape );
-		b3AddType( b3_planeShape, b3_capsuleShape );
-		b3AddType( b3_planeShape, b3_hullShape );
 		s_initialized = true;
 	}
 }
@@ -498,23 +495,7 @@ static bool b3ComputeConvexManifold( b3World* world, int workerIndex, b3Contact*
 
 	b3Transform transformBtoA = b3InvMulWorldTransforms( xfA, xfB );
 
-	if ( typeA == b3_planeShape )
-	{
-		if ( typeB == b3_sphereShape )
-		{
-			b3CollidePlaneAndSphere( &geomManifold, pointCapacity, &shapeA->plane, &shapeB->sphere, transformBtoA );
-		}
-		else if ( typeB == b3_capsuleShape )
-		{
-			b3CollidePlaneAndCapsule( &geomManifold, pointCapacity, &shapeA->plane, &shapeB->capsule, transformBtoA );
-		}
-		else
-		{
-			B3_ASSERT( typeB == b3_hullShape );
-			b3CollidePlaneAndHull( &geomManifold, pointCapacity, &shapeA->plane, shapeB->hull, transformBtoA );
-		}
-	}
-	else if ( typeA == b3_sphereShape )
+	if ( typeA == b3_sphereShape )
 	{
 		B3_ASSERT( typeB == b3_sphereShape );
 		b3CollideSpheres( &geomManifold, pointCapacity, &shapeA->sphere, &shapeB->sphere, transformBtoA );

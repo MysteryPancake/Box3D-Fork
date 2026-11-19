@@ -627,10 +627,6 @@ static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec )
 				b3SnapW_U32( buf, gid );
 				break;
 			}
-			case b3_planeShape:
-				b3SnapW_I32( buf, (int)b3_planeShape );
-				b3SnapW_Bytes( buf, &src->plane, sizeof( b3Plane ) );
-				break;
 			default:
 				// A live shape must have a known geometry type. Fail loudly rather than emit a shape
 				// with no geometry that would silently lose its collision on restore.
@@ -814,9 +810,6 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 				dst->compound = (const b3CompoundData*)slot->bytes;
 				break;
 			}
-			case b3_planeShape:
-				b3SnapR_Bytes( r, &dst->plane, sizeof( b3Plane ) );
-				break;
 			default:
 				// Unknown geometry kind means a corrupt or unsupported snapshot. Fail the load instead
 				// of leaving a shape with no geometry.

@@ -321,13 +321,6 @@ b3Sphere b3RecR_SPHERE( b3RecReader* rdr )
 	return s;
 }
 
-b3Plane b3RecR_PLANE( b3RecReader* rdr )
-{
-	b3Plane p;
-	b3RecRdrBlob( rdr, &p, (int)sizeof( p ) );
-	return p;
-}
-
 b3Capsule b3RecR_CAPSULE( b3RecReader* rdr )
 {
 	b3Capsule c;
@@ -1009,14 +1002,6 @@ static void b3RecDispatch_CreateSphereShape( const b3RecArgs_CreateSphereShape* 
 	b3ShapeId recId = b3RecR_SHAPEID( rdr );
 	b3BodyId bodyId = b3RecMakeBodyId( rdr, a->body );
 	b3ShapeId gotId = b3CreateSphereShape( bodyId, &a->def, &a->sphere );
-	b3RecCheckShapeId( rdr, gotId, recId );
-}
-
-static void b3RecDispatch_CreatePlaneShape( const b3RecArgs_CreatePlaneShape* a, b3RecReader* rdr )
-{
-	b3ShapeId recId = b3RecR_SHAPEID( rdr );
-	b3BodyId bodyId = b3RecMakeBodyId( rdr, a->body );
-	b3ShapeId gotId = b3CreatePlaneShape( bodyId, &a->def, &a->plane );
 	b3RecCheckShapeId( rdr, gotId, recId );
 }
 

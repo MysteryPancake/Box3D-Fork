@@ -23,10 +23,6 @@ B3_API float b3GetLengthUnitsPerMeter( void );
 #define B3_HUGE ( 1.0e5f * b3GetLengthUnitsPerMeter() )
 #endif
 
-/// The half extent of the region a plane shape covers, around the point of the plane nearest the
-/// body origin. It stays below B3_HUGE so the broad-phase box stays valid.
-#define B3_PLANE_EXTENT ( 0.25f * B3_HUGE )
-
 /// Maximum parallel workers. Used for some fixed size arrays.
 #define B3_MAX_WORKERS 32
 
