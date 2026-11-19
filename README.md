@@ -12,6 +12,7 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 - Contact impulse events (`b3World_EnableContactImpulseEvents`, off by default): after each step `b3World_GetContactEvents` also lists every manifold point in the awake set that carried normal impulse, with both bodies, their user data and awake state.
 - `B3_GRAPH_COLOR_COUNT` is raised from 24 to 32 so dense joint networks overflow less.
 - A triangle mesh on a moving kinematic body collides with dynamic bodies it was not already touching. The mesh contact's triangle cache kept its query bounds in world space and skipped the query while the dynamic shape stayed inside them, so it never saw the mesh move.
+- `b3Body_SetType` on a body with a compound or height field shape no longer leaves the world locked. The call is still refused, and the world stays usable.
 
 Notes for agents working in this repository are in [CLAUDE.md](CLAUDE.md).
 

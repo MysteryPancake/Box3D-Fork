@@ -157,3 +157,13 @@ floor into a resting cube from three gaps.
 the dynamic colors are `B3_GRAPH_COLOR_COUNT - 4`, and the color name tables in `constraint_graph.c`, `joint.c` and
 `physics_world.c`, `b3Counters::colorCounts` and the overflow color test scene follow the constant. More colors means
 more solver sync points per substep.
+
+## `b3Body_SetType` lock leak (`src/body.c`)
+
+`b3Body_SetType` sets `world->locked` before checking the body's shapes. The refusal for a body with a compound or height
+field shape (only static bodies can hold one) returned with the world still locked, so every later call through
+`b3GetUnlockedWorld` asserted in debug and did nothing in release. That return now clears `world->locked` first, like the
+same-type return above it. The other `world->locked = true` sites in `body.c` were checked for early returns.
+
+**Tests.** None in this repo. Upstream's report has a repro: refuse the type change of a static compound body, then step
+a free-falling ball.
