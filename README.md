@@ -11,6 +11,7 @@ Forked to add some features and bug fixes for [Houdini Box3D](https://github.com
 - `b3BodyMoveEvent` carries the body's linear and angular velocity at the end of the step (zero for a body that fell asleep), so the application need not call `b3Body_GetLinearVelocity` and `b3Body_GetAngularVelocity` for every moved body.
 - Contact impulse events (`b3World_EnableContactImpulseEvents`, off by default): after each step `b3World_GetContactEvents` also lists every manifold point in the awake set that carried normal impulse, with both bodies, their user data and awake state.
 - `B3_GRAPH_COLOR_COUNT` is raised from 24 to 32 so dense joint networks overflow less.
+- A triangle mesh on a moving kinematic body collides with dynamic bodies it was not already touching. The mesh contact's triangle cache kept its query bounds in world space and skipped the query while the dynamic shape stayed inside them, so it never saw the mesh move.
 
 Notes for agents working in this repository are in [CLAUDE.md](CLAUDE.md).
 

@@ -135,6 +135,22 @@ for the wide ones) set a bit in a per-worker `impulseEventBitSet` for each conta
 world flag is on), `b3SolverStep` clears the bit sets with the hit ones, ORs the workers' sets together after the hit
 events and walks the bits to build the events. Off, the only cost is the flag test in the store loops.
 
+## Mesh contact triangle cache with a moving mesh (`src/mesh_contact.c`)
+
+**Problem.** `b3RefreshCache` keeps the triangles near the dynamic shape in `b3MeshContact::triangleCache`, queried
+inside `queryBounds`, and skipped the query while the dynamic shape's world AABB stayed inside `queryBounds`. That holds
+only for a static mesh. When a kinematic body carrying a mesh moved toward a dynamic body that stayed put, the AABB never
+left the bounds, so the cache stayed as it was made: empty if the shapes were apart when the contact began, so the mesh
+passed through the body. It worked only if the contact began with the shapes within the bounds' margin.
+
+**Fix.** `queryBounds` is in the mesh's frame. Each call transforms the dynamic shape's AABB into it
+(`b3AABB_Transform` with the inverse mesh transform), compares there, and on a refresh queries the mesh with the bounds
+it stored. A moving mesh refreshes the cache once the shape leaves the bounds relative to it. A static mesh behaves as
+before apart from the extra transform.
+
+**Tests.** None in this repo. The Houdini repo's `tests/core_mesh.cpp` ("moving kinematic mesh") drives a kinematic mesh
+floor into a resting cube from three gaps.
+
 ## Graph color count (`include/box3d/constants.h`)
 
 `B3_GRAPH_COLOR_COUNT` is 32 (was 24), so dense joint networks overflow less. The overflow color is still the last one,
